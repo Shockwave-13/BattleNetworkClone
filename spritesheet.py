@@ -36,9 +36,9 @@ class spritesheet(object):
 				for x in range(image_count)]
 		return self.images_at(tups, colorkey)
         
-	def getSpriteById(self, Id, cols, sizeX, sizeY):
+	def getSpriteById(self, Id, cols, sizeX, sizeY,colorkey=-1):
 		spriteCol = (Id)%cols
 		spriteRow = (Id)//cols
 		spriteX = spriteCol*sizeX
 		spriteY = spriteRow*sizeY
-		return self.image_at((spriteX,spriteY,sizeX,sizeY), colorkey=-1)
+		return self.image_at((spriteX,spriteY,sizeX,sizeY), colorkey=colorkey)
