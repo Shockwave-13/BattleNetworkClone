@@ -9,7 +9,7 @@ pygame.init()
 size = width, height = 480, 200
 tileWidth = 80
 tileHeight = 40
-turnFrames = 300
+turnFrames = 100
 backgroundColor = 0, 0, 0
 screen = pygame.display.set_mode(size)
 
@@ -232,6 +232,7 @@ def BattleTick():
 	global frameCount
 	global attackQueue
 	global cursor
+	global hand
 	for event in pygame.event.get():
 		if event.type == pygame.QUIT: 
 			sys.exit()
@@ -252,10 +253,6 @@ def BattleTick():
 				#print("enter custom")
 				gameTickAlias = CustomTick
 				frameCount = 0
-				#refill hand
-				cursor = 0
-				for i in range(customDraw-len(hand)):
-					hand.append(folder.pop())
 					
 	for enemy in enemies:
 		if randint(0,10)==0:
@@ -284,6 +281,7 @@ def CustomTick():
 	global cursor
 	global selectedChips
 	global selected
+	global hand
 	"""open custom menu, handle cursor and chip selection, draw chips"""
 	#drawCustom
 	drawGame()
@@ -315,8 +313,28 @@ def CustomTick():
 				selected[selectedChips.pop()] = False #pop and deselect chip
 		if event.type == pygame.KEYDOWN and event.key == K_r:
 			#load selectedChips attacks into attackQueue
+			if selectedChips: #if player selects new chips don't keep ones from last turn
+				attackQueue = []
 			while len(selectedChips) > 0:
 				attackQueue.append(hand[selectedChips.pop()])
+			#remove selected chips from hand
+			newHand = []
+			for i in range(len(hand)):
+				if not selected[i]:
+					newHand.append(hand[i])
+			hand = newHand
+			print("hand =",hand)
+			print("selectedChips =",selectedChips)
+			#refill hand
+			cursor = 0
+			for i in range(customDraw-len(hand)):
+				#print("refilled chip")
+				if(folder):
+					hand.append(folder.pop())
+			print(hand)
+			print("folder =",folder)
+			selected = [False for i in range(customDraw)]
+					
 			gameTickAlias = BattleTick
 	
 	if cursor < 0 or cursor >= len(hand):
@@ -338,6 +356,7 @@ hand = []
 cursor = 0
 for i in range(customDraw):
 	hand.append(folder.pop())
+print("first hand =",hand)
 selectedChips = []
 selected = [False for i in range(customDraw)]
 
