@@ -2,11 +2,14 @@ import sys, pygame
 from spritesheet import spritesheet
 from pygame.locals import *
 from random import randint
+from datetime import datetime
+import time
 pygame.init()
 
 size = width, height = 480, 200
 tileWidth = 80
 tileHeight = 40
+turnFrames = 300
 backgroundColor = 0, 0, 0
 screen = pygame.display.set_mode(size)
 
@@ -52,7 +55,8 @@ class PokemonEntity():
 	def __init__(self, pos, team):
 		self.pos = pos
 		self.team = team
-		self.pokemon = pokemon(randint(1,493),randint(1,15))	
+		self.pokemon = pokemon(randint(1,493),randint(1,15))
+		self.invulnTimer = 0
 		
 	def moveDirection(self,direction):
 		if direction == "up":
@@ -90,8 +94,15 @@ class PokemonEntity():
 			#move allowed
 			self.pos = x,y
 			
-	def hit(self,damage):
-		self.pokemon.totalStats[0] -= damage
+	def hit(self,damage,flinch):
+		if self.invulnTimer == 0: #if flinched don't get hit
+			self.pokemon.totalStats[0] -= damage
+			if flinch:
+				self.invulnTimer = 60
+			
+	def tick(self):
+		if self.invulnTimer > 0:
+			self.invulnTimer -= 1
 		
 
 class Chip():
@@ -115,7 +126,6 @@ class AttackEntity():
 		self.team = 1
 		self.spritesheet = spritesheet("chip icons.png")
 		self.imageStrip = self.spritesheet.load_strip([0,0,16,16],20)
-		print(self.imageStrip)
 		
 	def tick(self):
 		"""called each frame, should update animation and """
@@ -126,7 +136,7 @@ def drawAttackQueue():
 		#draw attack relative to player
 		chipSprite = chipSpriteSheet.getSpriteById(attack,20,16,16,colorkey=0)
 		chipRect = chipSprite.get_rect()
-		chipRect.center = player.pos[0]*tileWidth+tileWidth/2-offset, player.pos[1]*tileHeight+tileHeight/2-offset
+		chipRect.center = player.pos[0]*tileWidth+tileWidth/2-offset, player.pos[1]*tileHeight+tileHeight-offset
 		screen.blit(chipSprite,chipRect)
 		offset-=2
 
@@ -168,7 +178,8 @@ def drawGame():
 			entityImage = pygame.transform.flip(entity.pokemon.image,True,False)
 		else:
 			entityImage = entity.pokemon.image
-		screen.blit(entityImage, entity.pokemon.rect)
+		if entity.invulnTimer%2 == 0:
+			screen.blit(entityImage, entity.pokemon.rect)
 		
 	for entity in pokemonEntities: 
 		entityHpText = monospaceFont.render(str(entity.pokemon.totalStats[0]), False, (0,0,0))
@@ -178,34 +189,33 @@ def drawGame():
 		
 	drawAttackQueue()
 	
-	if frameCount < 100:
+	if frameCount < turnFrames:
 		timerText = monospaceFont.render(str(frameCount), False, (255,255,255))
 	else:
-		timerText = monospaceFont.render("Press R to reset attacks!", False, (255,255,255))
+		timerText = monospaceFont.render("Press R to open custom!", False, (255,255,255))
 
 	screen.blit(timerText,(0,0))
-	pygame.display.flip()
 	
 
-def hitTile(pos, damage, damageType, team):
-	print("hitTile",pos)
+def hitTile(pos, damage, damageType, team, flinch):
+	#print("hitTile",pos)
 	for entity in pokemonEntities:
 		if entity.pos==pos and entity.team!=team:
-			print("hit",pos,"for",damage,"damage")
-			entity.hit(damage)
+			#print("hit",pos,"for",damage,"damage")
+			entity.hit(damage, flinch)
 			return True
 
-def shootRow(pos, damage, damageType, team):
+def shootRow(pos, damage, damageType, team, flinch):
 	#pos is tile of player
 	for i in range(pos[0],6):
-		if hitTile((i,pos[1]),damage, damageType, team):
+		if hitTile((i,pos[1]),damage, damageType, team, flinch):
 			return True
 
-def sliceWide(pos, damage, damageType, team):
+def sliceWide(pos, damage, damageType, team, flinch):
 	x = pos[0]+1
-	hitTile((x,pos[1]-1), damage, damageType, team)
-	hitTile((x,pos[1]), damage, damageType, team)
-	hitTile((x,pos[1]+1), damage, damageType, team)
+	hitTile((x,pos[1]-1), damage, damageType, team, flinch)
+	hitTile((x,pos[1]), damage, damageType, team, flinch)
+	hitTile((x,pos[1]+1), damage, damageType, team, flinch)
 
 def TitleScreen():
 	global gameTickAlias
@@ -221,6 +231,7 @@ def BattleTick():
 	global gameTickAlias
 	global frameCount
 	global attackQueue
+	global cursor
 	for event in pygame.event.get():
 		if event.type == pygame.QUIT: 
 			sys.exit()
@@ -235,12 +246,16 @@ def BattleTick():
 		if event.type == pygame.KEYDOWN and event.key == K_SPACE:
 			if attackQueue:
 				attackAlias = attackAliases[attackQueue.pop()]
-				attackAlias((player.pos[0],player.pos[1]),10,"lol there's no type yet",1)
+				attackAlias((player.pos[0],player.pos[1]),10,"lol there's no type yet",1,True)
 		if event.type == pygame.KEYDOWN and event.key == K_r:
-			if frameCount >= 100:
-				print("enter custom")
+			if frameCount >= turnFrames:
+				#print("enter custom")
 				gameTickAlias = CustomTick
 				frameCount = 0
+				#refill hand
+				cursor = 0
+				for i in range(customDraw-len(hand)):
+					hand.append(folder.pop())
 					
 	for enemy in enemies:
 		if randint(0,10)==0:
@@ -257,26 +272,55 @@ def BattleTick():
 			
 	drawGame()
 	
-	if frameCount >= 100:
-		frameCount = 100
+	if frameCount >= turnFrames:
+		frameCount = turnFrames
 	else:
 		frameCount += 1
+		
 		
 def CustomTick():
 	global gameTickAlias
 	global attackQueue
+	global cursor
+	global selectedChips
+	global selected
 	"""open custom menu, handle cursor and chip selection, draw chips"""
-	#load selected attacks into attackQueue
-	attackQueue = [1,0]
+	#drawCustom
+	drawGame()
+	drawCustom(cursor)
 	
-	#leave custom immediately
-	gameTickAlias = BattleTick
+	
+	
+	
+	oldCursor = cursor
 	for event in pygame.event.get():
 		if event.type == pygame.QUIT: 
 			sys.exit()
-		if  event.type == pygame.KEYDOWN and event.key == K_r:
+		if event.type == pygame.KEYDOWN and event.key == K_RIGHT:
+			cursor += 1
+		if event.type == pygame.KEYDOWN and event.key == K_LEFT:
+			cursor -= 1
+		if event.type == pygame.KEYDOWN and event.key == K_UP:
+			cursor -= 5
+		if event.type == pygame.KEYDOWN and event.key == K_DOWN:
+			cursor += 5
+		if event.type == pygame.KEYDOWN and event.key == K_SPACE:
+			#select current chip
+			if len(selectedChips) < 5 and not selected[cursor]:
+				selectedChips.append(cursor) #select chip by adding it's cursor pos to selectedChips
+				selected[cursor] = True
+		if event.type == pygame.KEYDOWN and event.key == K_BACKSPACE:
+			#select current chip
+			if len(selectedChips) > 0:
+				selected[selectedChips.pop()] = False #pop and deselect chip
+		if event.type == pygame.KEYDOWN and event.key == K_r:
+			#load selectedChips attacks into attackQueue
+			while len(selectedChips) > 0:
+				attackQueue.append(hand[selectedChips.pop()])
 			gameTickAlias = BattleTick
-		
+	
+	if cursor < 0 or cursor >= len(hand):
+		cursor = oldCursor
 
 attackAliases = [shootRow, sliceWide]
 player = PokemonEntity((0,1),1)
@@ -287,6 +331,58 @@ frameCount = 0
 gameTickAlias = TitleScreen
 attackQueue = []
 attackEntity = AttackEntity((0,0))
+#shuffle folder at beginning of battle
+folder = [0,1,0,1,1,0,1,0,0,1,0,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,0,1]
+customDraw = 5 #number of chips to draw each turn
+hand = []
+cursor = 0
+for i in range(customDraw):
+	hand.append(folder.pop())
+selectedChips = []
+selected = [False for i in range(customDraw)]
+
+def drawCustom(cursor):
+	cursorSprite = pygame.image.load("custom cursor.png")
+	cursorRect = cursorSprite.get_rect()
+	customWindow = pygame.image.load("custom frame.png")
+	customWindowRect = customWindow.get_rect()
+	screen.blit(customWindow, customWindowRect)
+	#draw each chip
+	pos = 0
+	for chip in hand:
+		if not selected[pos]:
+			chipSprite = chipSpriteSheet.getSpriteById(chip,20,16,16,colorkey=0)
+			chipRect = chipSprite.get_rect()
+			chipRect.left = pos%5*17+11
+			chipRect.top = pos//5*18+108
+			screen.blit(chipSprite,chipRect)
+		pos += 1
+	#draw selectedChips chips
+	pos = 0
+	for chip in selectedChips:
+		chipSprite = chipSpriteSheet.getSpriteById(hand[chip],20,16,16,colorkey=0)
+		chipRect = chipSprite.get_rect()
+		chipRect.left = 103
+		chipRect.top = pos*17+17
+		screen.blit(chipSprite,chipRect)
+		pos += 1
+	#draw cursor
+	cursorRect.left = cursor%5*17+10
+	cursorRect.top = cursor//5*28+107
+	screen.blit(cursorSprite, cursorRect)
+	
+	
+
 
 while True:
+	start = datetime.now()
 	gameTickAlias()
+	end = datetime.now()
+	exec_time = end - start
+	sleepTime = 1/30-exec_time.total_seconds()
+	for entity in pokemonEntities:
+		entity.tick()
+		
+	pygame.display.flip()
+	if(sleepTime>0):
+		time.sleep(sleepTime)
