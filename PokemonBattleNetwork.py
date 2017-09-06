@@ -101,7 +101,7 @@ class PokemonEntity():
 				self.invulnTimer = 60
 			
 	def tick(self):
-		if self.invulnTimer > 0:
+		if self.invulnTimer > 0 and gameTickAlias == BattleTick:
 			self.invulnTimer -= 1
 		
 
@@ -295,50 +295,70 @@ def CustomTick():
 		if event.type == pygame.QUIT: 
 			sys.exit()
 		if event.type == pygame.KEYDOWN and event.key == K_RIGHT:
-			cursor += 1
+			if cursor == len(hand)-1:
+				cursor = -1
+			elif cursor==-1:
+				cursor = 0
+			elif cursor%5 == 4:
+				cursor = -1
+			elif cursor<len(hand)-1:
+				cursor += 1
 		if event.type == pygame.KEYDOWN and event.key == K_LEFT:
-			cursor -= 1
+			if cursor==0 or cursor==5:
+				cursor = -1
+			elif cursor==-1:
+				cursor = 4
+			else:
+				cursor -= 1
 		if event.type == pygame.KEYDOWN and event.key == K_UP:
-			cursor -= 5
+			if cursor>=5:
+				cursor -= 5
 		if event.type == pygame.KEYDOWN and event.key == K_DOWN:
-			cursor += 5
+			if cursor>=0 and cursor<len(hand)-5:
+				cursor += 5
 		if event.type == pygame.KEYDOWN and event.key == K_SPACE:
 			#select current chip
-			if len(selectedChips) < 5 and not selected[cursor]:
+			if cursor==-1:
+				#close custom
+				#load selectedChips attacks into attackQueue
+				if selectedChips: #if player selects new chips don't keep ones from last turn
+					attackQueue = []
+				while len(selectedChips) > 0:
+					attackQueue.append(hand[selectedChips.pop()])
+				#remove selected chips from hand
+				newHand = []
+				for i in range(len(hand)):
+					if not selected[i]:
+						newHand.append(hand[i])
+				hand = newHand
+				print("hand =",hand)
+				print("selectedChips =",selectedChips)
+				#refill hand
+				cursor = 0
+				for i in range(customDraw-len(hand)):
+					#print("refilled chip")
+					if(folder):
+						hand.append(folder.pop())
+				print(hand)
+				print("folder =",folder)
+				selected = [False for i in range(customDraw)]
+						
+				gameTickAlias = BattleTick
+			elif len(selectedChips) < 5 and not selected[cursor]:
 				selectedChips.append(cursor) #select chip by adding it's cursor pos to selectedChips
 				selected[cursor] = True
+				
+				
+				
 		if event.type == pygame.KEYDOWN and event.key == K_BACKSPACE:
 			#select current chip
 			if len(selectedChips) > 0:
 				selected[selectedChips.pop()] = False #pop and deselect chip
-		if event.type == pygame.KEYDOWN and event.key == K_r:
-			#load selectedChips attacks into attackQueue
-			if selectedChips: #if player selects new chips don't keep ones from last turn
-				attackQueue = []
-			while len(selectedChips) > 0:
-				attackQueue.append(hand[selectedChips.pop()])
-			#remove selected chips from hand
-			newHand = []
-			for i in range(len(hand)):
-				if not selected[i]:
-					newHand.append(hand[i])
-			hand = newHand
-			print("hand =",hand)
-			print("selectedChips =",selectedChips)
-			#refill hand
-			cursor = 0
-			for i in range(customDraw-len(hand)):
-				#print("refilled chip")
-				if(folder):
-					hand.append(folder.pop())
-			print(hand)
-			print("folder =",folder)
-			selected = [False for i in range(customDraw)]
-					
-			gameTickAlias = BattleTick
+		
+		
+		
 	
-	if cursor < 0 or cursor >= len(hand):
-		cursor = oldCursor
+	
 
 attackAliases = [shootRow, sliceWide]
 player = PokemonEntity((0,1),1)
@@ -351,7 +371,7 @@ attackQueue = []
 attackEntity = AttackEntity((0,0))
 #shuffle folder at beginning of battle
 folder = [0,1,0,1,1,0,1,0,0,1,0,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,0,1]
-customDraw = 5 #number of chips to draw each turn
+customDraw = 8 #number of chips to draw each turn
 hand = []
 cursor = 0
 for i in range(customDraw):
@@ -373,7 +393,7 @@ def drawCustom(cursor):
 			chipSprite = chipSpriteSheet.getSpriteById(chip,20,16,16,colorkey=0)
 			chipRect = chipSprite.get_rect()
 			chipRect.left = pos%5*17+11
-			chipRect.top = pos//5*18+108
+			chipRect.top = pos//5*28+108
 			screen.blit(chipSprite,chipRect)
 		pos += 1
 	#draw selectedChips chips
@@ -386,8 +406,13 @@ def drawCustom(cursor):
 		screen.blit(chipSprite,chipRect)
 		pos += 1
 	#draw cursor
-	cursorRect.left = cursor%5*17+10
-	cursorRect.top = cursor//5*28+107
+	if cursor==-1:
+		#replace this with a special cursor to fit OK button
+		cursorRect.left = 5*17+10
+		cursorRect.top = 107
+	else:
+		cursorRect.left = cursor%5*17+10
+		cursorRect.top = cursor//5*28+107
 	screen.blit(cursorSprite, cursorRect)
 	
 	
