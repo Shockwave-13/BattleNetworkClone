@@ -11,9 +11,9 @@ class spritesheet(object):
 	def __init__(self, filename):
 		try:
 			self.sheet = pygame.image.load(filename).convert()
-		except (pygame.error, message):
+		except (pygame.error):
 			print('Unable to load spritesheet image:', filename)
-			raise(SystemExit, message)
+			raise(SystemExit)
 	# Load a specific image from a specific rectangle
 	def image_at(self, rectangle, colorkey = None):
 		"Loads image from x,y,x+offset,y+offset"
@@ -32,8 +32,7 @@ class spritesheet(object):
 	# Load a whole strip of images
 	def load_strip(self, rect, image_count, colorkey = None):
 		"Loads a strip of images and returns them as a list"
-		tups = [(rect[0]+rect[2]*x, rect[1], rect[2], rect[3])
-				for x in range(image_count)]
+		tups = [(rect[0]+rect[2]*x, rect[1], rect[2], rect[3]) for x in range(image_count)]
 		return self.images_at(tups, colorkey)
         
 	def getSpriteById(self, Id, cols, sizeX, sizeY,colorkey=-1):
