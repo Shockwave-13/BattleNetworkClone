@@ -65,13 +65,14 @@ class pokemon():
 		self.rect = self.image.get_rect()
 		
 class PokemonEntity():
-	def __init__(self, pos, team):
+	def __init__(self, pos, team, element):
 		self.pos = pos
 		self.team = team
 		self.pokemon = pokemon(randint(1,493),randint(1,15))
 		self.moveLock = False
 		self.status = 0
 		self.statusTimer = 0
+		self.element = element #normal, fire, aqua, elec, wood, break, cursor, wind, sword
 		
 	def moveDirection(self,direction):
 		if direction == "up":
@@ -112,10 +113,24 @@ class PokemonEntity():
 				#move allowed
 				self.pos = [newX,newY]
 			
-	def hit(self, damage, status):
+	def hit(self, damage, damageType, status):
 		if self.status==1 and self.statusTimer>0: #if flinched don't get hit
 			return
-		self.pokemon.totalStats[0] -= damage
+		effectiveness = typeEffectiveness(damageType,self.element)
+		#status bonus
+		if self.statusTimer>0:
+			bonus = [(2,7),(3,5),(4,6),(5,8)]
+			for i,j in bonus:
+				if self.status==i and damageType==j:
+					effectiveness*=2
+					
+		print("effectiveness",effectiveness)
+		if effectiveness==2:
+			animations.append(Animation(self.pos,0,"super effective.png",[0,0,48,48],0,4))
+		elif effectiveness==4:
+			animations.append(Animation(self.pos,0,"super effective.png",[0,48,48,48],0,4))
+		self.pokemon.totalStats[0] -= damage*effectiveness
+		
 		if status==1: #flinch
 			self.status = 1
 			self.statusTimer = 60
@@ -130,7 +145,7 @@ class PokemonEntity():
 	def tick(self):
 		if self.statusTimer>0:
 			if self.status==2 and self.statusTimer%15==0: #burn damage over time
-				self.hit(1,0)
+				self.hit(1,1,0)
 			self.statusTimer -= 1
 			
 
@@ -178,7 +193,7 @@ class AttackEntity():
 		for entity in pokemonEntities:
 			if entity.pos==pos and entity.team!=self.team:
 				#print("hit",pos,"for",self.damage,"damage")
-				entity.hit(self.damage, self.status)
+				entity.hit(self.damage, self.damageType, self.status)
 				return True
 
 	def shootRow(self, pos):
@@ -189,7 +204,7 @@ class AttackEntity():
 			#in same row
 			#right if red or left if blue
 			if entity.team!=self.team and entity.pos[1]==pos[1] and ((self.team==1 and entity.pos[0]>pos[0]) or (self.team==2 and entity.pos[0]<pos[0])):
-				entity.hit(self.damage, self.status)
+				entity.hit(self.damage, self.damageType, self.status)
 				return
 				
 	def sliceWide(self, pos):
@@ -222,7 +237,23 @@ class AttackEntity():
 					target = entity
 		return target
 			
-
+def typeEffectiveness(attackElement, defendElement):
+	print(attackElement,"->",defendElement)
+	if attackElement == 0:
+		return 1
+	attackRing = (attackElement-1)//4
+	defendRing = (defendElement-1)//4
+	if attackRing==defendRing:
+		if attackElement == defendElement+1 or attackElement== defendElement-3:
+			return 2
+	return 1
+			
+for i in range(9):
+	for j in range(9):
+		print(i,j,typeEffectiveness(i,j))
+	#difference = attackElement-defendElement
+	#if difference==1 and attackElement!=5 and attackElement!=1:
+	#elif difference==-3 and attackElement==1 or attackElement==5
 			
 class ShootAttack(AttackEntity):
 	"""	a child of AttackEntity for shooting attacks, will call shootRow on shootFrame and will end on endFrame
@@ -587,15 +618,15 @@ def BattleTick():
 					attackId = attackQueue.pop()			
 					#create AttackEntity corresponding to chip 
 					if attackId == 0:
-						attackEntities.append(ShootAttack(player, 10, None, 0, 7, 9))
+						attackEntities.append(ShootAttack(player, 10, 7, 0, 7, 9))
 					elif attackId == 1:
-						attackEntities.append(SwordAttack(player, 10, None, 1, 7, 9))
+						attackEntities.append(SwordAttack(player, 10, 8, 1, 7, 9))
 					elif attackId == 2:
-						attackEntities.append(PhysicalAttack(player, 10, None, 2, 1, 10))
+						attackEntities.append(PhysicalAttack(player, 10, 5, 2, 1, 10))
 					elif attackId == 3:
-						attackEntities.append(TargetAttack(player, 10, None, 3, 9, 5, 3))
+						attackEntities.append(TargetAttack(player, 10, 6, 3, 9, 5, 3))
 					elif attackId == 4:
-						attackEntities.append(MovingTileAttack(player, 10, None, 4, 30, 4))
+						attackEntities.append(MovingTileAttack(player, 10, 0, 5, 30, 4))
 						
 					
 		if event.type == pygame.KEYDOWN and event.key == K_r:
@@ -753,12 +784,12 @@ def CustomTick():
 	
 #game
 gameTickAlias = TitleScreen
-boardTeam = [[1,1,1],[1,0,1],[0,0,0],[0,0,0],[2,0,2],[2,2,2]] #each row of board 0 = neutral, 1 = red, 2 = blue
+boardTeam = [[1,1,1],[1,0,1],[0,0,0],[0,0,0],[1,1,1],[2,2,2]] #each row of board 0 = neutral, 1 = red, 2 = blue
 tileTypes = [[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0]]
-folder = [[2,"B"],[2,"B"],[2,"B"],[2,"B"],[2,"B"],[0,"A"],[0,"A"],[0,"A"],[0,"A"],[0,"A"],[1,"A"],[1,"A"],[1,"A"],[1,"A"],[1,"A"],[3,"B"],[3,"B"],[3,"B"],[3,"B"],[3,"B"],[4,"A"],[4,"A"],[4,"A"],[4,"A"],[4,"A"],[1,"A"],[0,"A"],[0,"B"],[0,"A"],[157,"*"]]
+folder = [[2,"A"],[2,"A"],[2,"A"],[2,"A"],[2,"A"],[0,"A"],[0,"A"],[0,"A"],[0,"A"],[0,"A"],[1,"A"],[1,"A"],[1,"A"],[1,"A"],[1,"A"],[3,"A"],[3,"A"],[3,"A"],[3,"A"],[3,"A"],[4,"A"],[4,"A"],[4,"A"],[4,"A"],[4,"A"],[1,"A"],[0,"A"],[0,"A"],[0,"A"],[157,"*"]]
 shuffle(folder)
-player = PokemonEntity([1,1],1)
-enemies = [PokemonEntity([5,0],2),PokemonEntity([5,2],2),PokemonEntity([5,1],2)]
+player = PokemonEntity([1,1],1,0)
+enemies = [PokemonEntity([5,0],2,5),PokemonEntity([5,2],2,6),PokemonEntity([5,1],2,7)]
 pokemonEntities = []
 pokemonEntities.append(player)
 pokemonEntities += enemies
@@ -784,7 +815,7 @@ selectedChips = []
 selected = [False for i in range(customDraw)]
 selectedCode = None
 customCounter = 0
-animations = []
+animations = [Animation([3,-1],0,"super effective.png",[0,0,48,48],0,4),Animation([4,-1],0,"super effective.png",[0,48,48,48],0,4)]
 
 while True:
 	start = datetime.now()
