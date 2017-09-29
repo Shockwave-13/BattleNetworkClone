@@ -69,8 +69,9 @@ class PokemonEntity():
 		self.pos = pos
 		self.team = team
 		self.pokemon = pokemon(randint(1,493),randint(1,15))
-		self.invulnTimer = 0
 		self.moveLock = False
+		self.status = 0
+		self.statusTimer = 0
 		
 	def moveDirection(self,direction):
 		if direction == "up":
@@ -104,21 +105,34 @@ class PokemonEntity():
 		
 	def move(self,x,y):
 		"""move to tile at x,y"""
-		newX = int(x)
-		newY = int(y)
-		if boardTeam[newX][newY]==0 or self.team==boardTeam[newX][newY]:
-			#move allowed
-			self.pos = [newX,newY]
+		if self.statusTimer==0 or self.status<=2:
+			newX = int(x)
+			newY = int(y)
+			if boardTeam[newX][newY]==0 or self.team==boardTeam[newX][newY]:
+				#move allowed
+				self.pos = [newX,newY]
 			
-	def hit(self,damage,flinch):
-		if self.invulnTimer == 0: #if flinched don't get hit
-			self.pokemon.totalStats[0] -= damage
-			if flinch:
-				self.invulnTimer = 60
+	def hit(self, damage, status):
+		if self.status==1 and self.statusTimer>0: #if flinched don't get hit
+			return
+		self.pokemon.totalStats[0] -= damage
+		if status==1: #flinch
+			self.status = 1
+			self.statusTimer = 60
+		if status>1 and self.statusTimer==0:
+			#if you don't resist status type
+			self.status = status
+			#more time if you are weak to status type?
+			self.statusTimer = 60
+				
+				
 			
 	def tick(self):
-		if self.invulnTimer > 0 and gameTickAlias == BattleTick:
-			self.invulnTimer -= 1
+		if self.statusTimer>0:
+			if self.status==2 and self.statusTimer%15==0: #burn damage over time
+				self.hit(1,0)
+			self.statusTimer -= 1
+			
 
 class Chip():
 	def __init__(self, Id, code):
@@ -131,14 +145,14 @@ class Chip():
 class AttackEntity():
 	"""	handles timing of attacks, created upon using an attack
 		does not care about animation"""
-	def __init__(self, user, damage, damageType, flinch, endFrame):
+	def __init__(self, user, damage, damageType, status, endFrame):
 		#self.pos = pos
 		#self.team = team
 		self.user = user
 		self.damage = damage
 		self.damageType = damageType
 		self.team = user.team
-		self.flinch = flinch
+		self.status = status
 		self.pos = user.pos[:] #want a copy of user's position
 		self.team = user.team
 		self.endFrame = endFrame
@@ -164,7 +178,7 @@ class AttackEntity():
 		for entity in pokemonEntities:
 			if entity.pos==pos and entity.team!=self.team:
 				#print("hit",pos,"for",self.damage,"damage")
-				entity.hit(self.damage, self.flinch)
+				entity.hit(self.damage, self.status)
 				return True
 
 	def shootRow(self, pos):
@@ -175,7 +189,7 @@ class AttackEntity():
 			#in same row
 			#right if red or left if blue
 			if entity.team!=self.team and entity.pos[1]==pos[1] and ((self.team==1 and entity.pos[0]>pos[0]) or (self.team==2 and entity.pos[0]<pos[0])):
-				entity.hit(self.damage,self.flinch)
+				entity.hit(self.damage, self.status)
 				return
 				
 	def sliceWide(self, pos):
@@ -213,8 +227,8 @@ class AttackEntity():
 class ShootAttack(AttackEntity):
 	"""	a child of AttackEntity for shooting attacks, will call shootRow on shootFrame and will end on endFrame
 		ToDo: get sprites and add a spriteSheet and extra data to select different sprites"""
-	def __init__(self, user, damage, damageType, flinch, shootFrame, endFrame):
-		AttackEntity.__init__(self, user, damage, damageType, flinch, endFrame)
+	def __init__(self, user, damage, damageType, status, shootFrame, endFrame):
+		AttackEntity.__init__(self, user, damage, damageType, status, endFrame)
 		self.shootFrame = shootFrame
 		user.moveLock = True
 		animations.append(Animation(user.pos[:], user.team, "shoot.png", [0,0,80,80], 0, 10))
@@ -231,11 +245,11 @@ class ShootAttack(AttackEntity):
 		super(ShootAttack, self).tick()
 		
 class SwordAttack(AttackEntity):
-	def __init__(self, user, damage, damageType, flinch, shootFrame, endFrame):
-		AttackEntity.__init__(self, user, damage, damageType, flinch, endFrame)
+	def __init__(self, user, damage, damageType, status, shootFrame, endFrame):
+		AttackEntity.__init__(self, user, damage, damageType, status, endFrame)
 		self.shootFrame = shootFrame
 		user.moveLock = True
-		animations.append(Animation(user.pos[:], user.team, "wideSword.png", [0,0,160,240], 0, 10))
+		animations.append(Animation([user.pos[0]+1,user.pos[1]+1], user.team, "wideSword.png", [0,0,80,240], 0, 10))
 		
 	def tick(self):
 		#player should be immobile upon activating
@@ -251,7 +265,7 @@ class SwordAttack(AttackEntity):
 class MultiAttack(AttackEntity):
 	"""	an attack entity that handles multihits
 		creates an attack entity each interval for multiCount times"""
-	def __init__(self, user, damage, damageType, flinch, multiCount, interval, attack):
+	def __init__(self, user, damage, damageType, status, multiCount, interval, attack):
 		AttackEntity.__init__(self, user, multiCount*interval) #end time depends on number of hits
 		
 	def tick(self):
@@ -262,8 +276,8 @@ class MultiAttack(AttackEntity):
 		super(MultiAttack, self).tick()
 			
 class PhysicalAttack(AttackEntity):
-	def __init__(self, user, damage, damageType, flinch, distance, endFrame):
-		AttackEntity.__init__(self, user, damage, damageType, flinch, endFrame)
+	def __init__(self, user, damage, damageType, status, distance, endFrame):
+		AttackEntity.__init__(self, user, damage, damageType, status, endFrame)
 		self.originalPos = user.pos[:]
 		self.distance = distance
 		self.speed = self.distance/self.endFrame
@@ -291,8 +305,8 @@ class PhysicalAttack(AttackEntity):
 		
 class TargetAttack(AttackEntity):
 	""" an attack that targets the nearest enemy"""
-	def __init__(self, user, damage, damageType, flinch, endFrame, hitFrame, maxRange):
-		AttackEntity.__init__(self, user, damage, damageType, flinch, endFrame)
+	def __init__(self, user, damage, damageType, status, endFrame, hitFrame, maxRange):
+		AttackEntity.__init__(self, user, damage, damageType, status, endFrame)
 		self.hitFrame = hitFrame
 		self.maxRange = maxRange
 		self.user.moveLock = True
@@ -312,11 +326,12 @@ class TargetAttack(AttackEntity):
 		
 class GuardAttack(AttackEntity):
 	"""Shield then reflect"""
-	def __init__(self, user, damage, damageType, flinch, endFrame, spriteFile, animationDelay):
-		AttackEntity.__init__(self, user, damage, damageType, flinch, endFrame, spriteFile, [0,0,80,80], animationDelay, False)
+	def __init__(self, user, damage, damageType, status, endFrame, spriteFile, animationDelay):
+		AttackEntity.__init__(self, user, damage, damageType, status, endFrame, spriteFile, [0,0,80,80], animationDelay, False)
 		#give user invincibility and moveLock
 		self.user.moveLock = True
-		self.user.invulnTimer = endFrame
+		self.user.status = 1
+		self.user.statusTimer = endFrame
 
 	def tick(self):
 		#check if hit
@@ -325,8 +340,8 @@ class GuardAttack(AttackEntity):
 
 class MovingTileAttack(AttackEntity):
 	"""attack moves along tiles"""
-	def __init__(self, user, damage, damageType, flinch, endFrame, moveDelay):
-		AttackEntity.__init__(self, user, damage, damageType, flinch, endFrame)
+	def __init__(self, user, damage, damageType, status, endFrame, moveDelay):
+		AttackEntity.__init__(self, user, damage, damageType, status, endFrame)
 		self.moveDelay = moveDelay
 		
 		
@@ -348,8 +363,8 @@ class MovingTileAttack(AttackEntity):
 
 class SampleAttack(AttackEntity):
 	"""a Sample AttackEntity child for copy paste purposes"""
-	def __init__(self, user, damage, damageType, team, flinch, endFrame):
-		AttackEntity.__init__(self, user, damage, damageType, team, flinch, endFrame)
+	def __init__(self, user, damage, damageType, team, status, endFrame):
+		AttackEntity.__init__(self, user, damage, damageType, team, status, endFrame)
 	
 	def tick(self):
 		super(SampleAttack, self).tick()
@@ -432,8 +447,24 @@ def drawGame():
 			entityImage = pygame.transform.flip(entity.pokemon.image,True,False)
 		else:
 			entityImage = entity.pokemon.image
-		if entity.invulnTimer%2 == 0:
+		if not(entity.status==1 and entity.statusTimer%2==1): #don't draw every other frame if flinched
 			screen.blit(entityImage, entity.pokemon.rect)
+			
+		if entity.status>1 and entity.statusTimer>0:
+			#draw status effect
+			statusIndex = entity.status-2
+			#statusFiles = ["burn.png","freeze.png","paralyze.png","vines.png"]
+			#statusImageCounts = [5,10,4,1]
+			#statusImageCount = statusImageCounts[statusIndex]
+			#statusStrip = spritesheet(statusFiles[statusIndex]).load_strip([0,0,80,80],statusImageCount,colorkey=-1)
+			statusStrip = statusStrips[statusIndex]
+			
+			
+			statusFrame = (60-entity.statusTimer)%len(statusStrip)-1
+			if entity.team==1:
+				entityImage = pygame.transform.flip(entity.pokemon.image,True,False)
+			screen.blit(statusStrip[statusFrame], entity.pokemon.rect)
+			
 	
 	"""for attack in attackEntities:
 		x = attack.pos[0]*tileWidth+tileHeight
@@ -556,15 +587,15 @@ def BattleTick():
 					attackId = attackQueue.pop()			
 					#create AttackEntity corresponding to chip 
 					if attackId == 0:
-						attackEntities.append(ShootAttack(player, 10, None, True, 7, 9))
+						attackEntities.append(ShootAttack(player, 10, None, 0, 7, 9))
 					elif attackId == 1:
-						attackEntities.append(SwordAttack(player, 10, None, True, 7, 9))
+						attackEntities.append(SwordAttack(player, 10, None, 1, 7, 9))
 					elif attackId == 2:
-						attackEntities.append(PhysicalAttack(player, 10, None, True, 1, 10))
+						attackEntities.append(PhysicalAttack(player, 10, None, 2, 1, 10))
 					elif attackId == 3:
-						attackEntities.append(TargetAttack(player, 10, None, True, 9, 5, 3))
+						attackEntities.append(TargetAttack(player, 10, None, 3, 9, 5, 3))
 					elif attackId == 4:
-						attackEntities.append(MovingTileAttack(player, 10, None, True, 30, 4))
+						attackEntities.append(MovingTileAttack(player, 10, None, 4, 30, 4))
 						
 					
 		if event.type == pygame.KEYDOWN and event.key == K_r:
@@ -574,7 +605,7 @@ def BattleTick():
 				frameCount = 0
 					
 	for enemy in enemies:
-		if randint(0,10)==0:
+		if randint(0,20)==0:
 			moves = ["left","right","up","down"]
 			enemy.moveDirection(moves[randint(0,3)])
 		#elif randint(0,40)==0:
@@ -598,6 +629,9 @@ def BattleTick():
 		if animation.animationTimer >= animation.endFrame:
 			animations.remove(animation)
 		animation.tick()
+		
+	for entity in pokemonEntities:
+		entity.tick()
 		
 	drawGame()
 	
@@ -733,6 +767,9 @@ attackEntities = []
 customGauge = pygame.image.load("custom guage.png")
 customRect = Rect(0,0,width,height)
 
+statusStrips = [spritesheet(statusFile).load_strip([0,0,80,80],statusImageCount,colorkey=-1) for statusFile,statusImageCount in [("burn.png",6),("freeze.png",10),("paralyze.png",4),("vines.png",1)]]
+			
+
 #battle
 frameCount = 0
 attackQueue = []
@@ -748,15 +785,13 @@ selected = [False for i in range(customDraw)]
 selectedCode = None
 customCounter = 0
 animations = []
-	
+
 while True:
 	start = datetime.now()
 	gameTickAlias()
 	end = datetime.now()
 	exec_time = end - start
 	sleepTime = 1/30-exec_time.total_seconds()
-	for entity in pokemonEntities:
-		entity.tick()
 		
 	pygame.display.flip()
 	if(sleepTime>0):
