@@ -8,16 +8,18 @@ import time
 from pygame import PixelArray
 
 pygame.init()
+pygame.display.set_caption("Pokemon Battle Network")
 
-size = width, height = 480, 200
+
 tileWidth = 80
 tileHeight = 40
-turnFrames = 100
+size = width, height = tileWidth*6, tileHeight*5
 backgroundColor = 0, 0, 0
 screen = pygame.display.set_mode(size)
 
+pygame.transform.scale(screen,(1366,768))
 #resources
-chipNames = ["Air Shot","WideSwrd","Tackle","Target Shot Thing","Shockwave"]
+chipNames = ["Air Shot","WideSwrd","Tackle","Target Shot","Shockwave","FireSword","AquaSword","ElecSword","BambSword"]
 pokemonSpriteSheet = spritesheet("diamond-pearl.png")
 chipSpriteSheet = spritesheet("chip icons.png")
 background = pygame.image.load("background.png")
@@ -297,17 +299,37 @@ class Custom():
 			
 		#draw each chip
 		for i in range(len(self.hand)):
+			chipID, chipCode = self.hand[i]
 			if not self.selected[i]:
 				#if not selectable grey out
-				#if self.selectedCode != None and self.hand[i][1] != "*" and self.hand[i][1] != self.selectedCode:
-					#print(self.handSprites[i])
-					#greySurface(self.handSprites[i])
-					#print("gray")
+				if len(self.selectedChips)<5 and (self.selectedCode==None or self.selectedCode==chipCode or self.selectedID==chipID or (self.selectedCode!=-1 and chipCode=="*")):
+					unGreySurface(self.handSprites[i])
+				else:
+					greySurface(self.handSprites[i])
 					
 				screen.blit(self.handSprites[i],self.handRects[i])
 			
 			code = codeFont.render(self.hand[i][1], False, (255,255,0))
 			screen.blit(code,(self.handRects[i].left+4,self.handRects[i].top+15))
+			
+		#draw details of current chip
+		chipImageStrip = spritesheet("chip images.png").load_strip([0,0,56,48],10)
+		elementStrip = spritesheet("elements.png").load_strip([0,0,14,14],9,colorkey=-1)
+		
+		if self.cursor==-1:
+			chipID = len(chipImageStrip)-1
+		else:
+			currentChip = chipID,chipCode= self.hand[self.cursor]
+			chipName = chipNames[chipID]
+			chipNameText = monospaceFont.render(chipName,False,(255,255,255))
+			chipCodeText = monospaceFont.render(chipCode,False,(255,255,0))
+			chipDamageText = monospaceFont.render("10",False,(255,255,255))
+			screen.blit(chipNameText,(15,17))
+			screen.blit(chipCodeText,(15,89))
+			screen.blit(elementStrip[0],(25,89))#need to assign elements to chipIDs and damage
+			screen.blit(chipDamageText,(69,89))
+		screen.blit(chipImageStrip[chipID],(15,29))
+		
 		#draw selectedChips chips
 		pos = 0
 		for chip in self.selectedChips:
@@ -327,7 +349,18 @@ class Custom():
 			self.cursorRect.top = self.cursor//5*28+107
 		screen.blit(self.cursorSprites[customCounter//5], self.cursorRect)
 				
-		
+
+def greySurface(surface):
+	surface.lock()
+	arr = PixelArray(surface)
+	arr.replace((232,216,128),(183,183,183))
+	surface.unlock()
+	
+def unGreySurface(surface):
+	surface.lock()
+	arr = PixelArray(surface)
+	arr.replace((183,183,183),(232,216,128))
+	surface.unlock()
 
 class Chip():
 	def __init__(self, Id, code):
@@ -883,6 +916,7 @@ pokemonEntities += enemies
 attackEntities = []
 
 #battle
+turnFrames = 100
 customGauge = pygame.image.load("custom guage.png")
 customRect = Rect(0,0,width,height)
 statusStrips = [spritesheet(statusFile).load_strip([0,0,80,80],statusImageCount,colorkey=-1) for statusFile,statusImageCount in [("burn.png",6),("freeze.png",10),("paralyze.png",4),("vines.png",1)]]	
@@ -894,9 +928,6 @@ custom = Custom(folder, 5)
 customCounter = 0
 animations = []
 
-def greySurface(surface):
-	arr = PixelArray(surface)
-	arr.replace((232,216,128),(183,183,183))
 
 while True:
 	start = datetime.now()
