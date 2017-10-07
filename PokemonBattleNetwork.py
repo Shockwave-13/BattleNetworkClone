@@ -5,6 +5,7 @@ from pygame import Rect
 from random import randint, shuffle
 from datetime import datetime
 import time
+from pygame import PixelArray
 
 pygame.init()
 
@@ -73,6 +74,8 @@ class PokemonEntity():
 		self.status = 0
 		self.statusTimer = 0
 		self.element = element #normal, fire, aqua, elec, wood, break, cursor, wind, sword
+		self.visualOffset = [0,0]
+		self.healCooldown = 0
 		
 	def moveDirection(self,direction):
 		if direction == "up":
@@ -154,7 +157,177 @@ class PokemonEntity():
 			if self.status==2 and self.statusTimer%15==0: #burn damage over time
 				self.hit(1,1,0)
 			self.statusTimer -= 1
+		x,y = self.pos
+		if tileTypes[x][y]==self.element and self.healCooldown==0:
+			self.pokemon.totalStats[0]+=1
+			self.healCooldown=15
+		self.healCooldown -= 1
+		
+class Custom():
+	""""handles the data for the custom window"""
+	def __init__(self,folder,customDraw):
+		self.folder = folder
+		shuffle(self.folder)
+		self.customDraw = customDraw
+		self.hand = []
+		self.refresh()
+		
+		#draw resources
+		self.cursorRect = Rect(0,0,18,18)
+		self.cursorSprites = spritesheet("custom cursor.png").load_strip(self.cursorRect,2,colorkey=-1)
+		self.customWindow = pygame.image.load("custom frame.png")
+		self.customWindowRect = self.customWindow.get_rect()
+		
+		
+	def refresh(self):
+		"""draws a new hand and resets relevant data"""
+		if len(self.hand)==0:
+			self.cursor = -1
+		else:
+			self.cursor = 0
+		for i in range(self.customDraw-len(self.hand)):
+			if self.folder:
+				self.hand.append(self.folder.pop())
+			else:
+				break
+		self.selectedCode = None
+		self.selectedID = None
+		self.selectedChips = []
+		self.selected = [False for i in range(self.customDraw)]
+		self.handSprites = [chipSpriteSheet.getSpriteById(chip[0],20,16,16,colorkey=0) for chip in self.hand]
+		self.handRects = [handSprite.get_rect() for handSprite in self.handSprites]
+		
+		
+	def moveCursor(self, direction):
+		if direction=="up":
+			if self.cursor>=5:
+				self.cursor -= 5			
+		elif direction=="down":
+			if self.cursor>=0 and self.cursor<len(self.hand)-5:
+				self.cursor += 5
+		elif direction=="left":
+			if self.cursor==0 or self.cursor==5:
+				self.cursor = -1
+			elif self.cursor==-1:
+				if len(self.hand)>=5:
+					self.cursor = 4
+				elif len(self.hand)<5 and len(self.hand)!=0:
+					self.cursor = len(self.hand)-1
+			else:
+				self.cursor -= 1
+		elif direction=="right":
+			if self.cursor == len(self.hand)-1:
+				self.cursor = -1
+			elif self.cursor==-1:
+				self.cursor = 0
+			elif self.cursor%5 == 4:
+				self.cursor = -1
+			elif self.cursor<len(self.hand)-1:
+				self.cursor += 1
+		
+	def select(self):
+		"""selects the chip at the current cursor position and adds it to selectedChips
+			returns selectedChips if user selects OK"""
+		if self.cursor>=0 and self.cursor<len(self.hand):
+			chipID,chipCode = self.hand[self.cursor]
+		else:
+			chipID = -2
+			chipCode = -2
+		#close custom
+		if self.cursor==-1:
+			#load selectedChips attacks into attackQueue
+			attackQueue = []
+			while len(self.selectedChips) > 0:
+				attackQueue.append(self.hand[self.selectedChips.pop()][0])
+			#remove self.selected chips from hand
+			newHand = []
+			for i in range(len(self.hand)):
+				if not self.selected[i]:
+					newHand.append(self.hand[i])
+			self.hand = newHand
+			self.refresh()
+								
+			return attackQueue
 			
+		#self.select current chip
+		elif len(self.selectedChips)<5 and not self.selected[self.cursor] and (self.selectedCode==None or self.selectedCode==chipCode or self.selectedID==chipID or (self.selectedCode!=-1 and chipCode=="*")):
+			self.selectedChips.append(self.cursor) #self.select chip by adding it's cursor pos to self.selectedChips
+			self.selected[self.cursor] = True
+			self.selectCode(chipID,chipCode)
+		return None
+			
+	def deselect(self):
+		"""deselects the last chip selected"""
+		if len(self.selectedChips) > 0:
+			self.selected[self.selectedChips.pop()] = False #pop and deselect chip
+			#search selected chips to update selectedCode and selectedID
+			#tempCode = None
+			#tempID = None
+			
+			#run through selected chips again
+			self.selectedCode = None
+			self.selectedID = None
+			for chipLocation in self.selectedChips:
+				chipID,chipCode = self.hand[chipLocation]
+				self.selectCode(chipID,chipCode)
+				#if hand[chipLocation][1] != None and hand[chipLocation][1]!="*":
+					#tempCode = hand[chipLocation][1]
+					#break
+			#selectedCode = tempCode
+		
+	def selectCode(self, chipID, chipCode):
+		if self.selectedID==None:
+			self.selectedID = chipID
+		elif self.selectedID!=chipID:
+			self.selectedID = -1
+		
+		if self.selectedCode==None and chipCode!="*":
+			self.selectedCode = chipCode
+		elif self.selectedCode!=chipCode and chipCode!="*":
+			self.selectedCode = -1
+		
+		#print(self.selectedCode,self.selectedID)
+		
+	def draw(self):		
+		screen.blit(self.customWindow, self.customWindowRect)
+		
+		for i in range(len(self.hand)):
+			self.handRects[i].left = i%5*17+11
+			self.handRects[i].top = i//5*28+108
+			
+		#draw each chip
+		for i in range(len(self.hand)):
+			if not self.selected[i]:
+				#if not selectable grey out
+				#if self.selectedCode != None and self.hand[i][1] != "*" and self.hand[i][1] != self.selectedCode:
+					#print(self.handSprites[i])
+					#greySurface(self.handSprites[i])
+					#print("gray")
+					
+				screen.blit(self.handSprites[i],self.handRects[i])
+			
+			code = codeFont.render(self.hand[i][1], False, (255,255,0))
+			screen.blit(code,(self.handRects[i].left+4,self.handRects[i].top+15))
+		#draw selectedChips chips
+		pos = 0
+		for chip in self.selectedChips:
+			chipSprite = self.handSprites[chip]
+			chipRect = self.handRects[chip]
+			chipRect.left = 103
+			chipRect.top = pos*17+17
+			screen.blit(chipSprite,chipRect)
+			pos += 1
+		#draw cursor
+		if self.cursor==-1:
+			#replace this with a special cursor to fit OK button
+			self.cursorRect.left = 95
+			self.cursorRect.top = 107
+		else:
+			self.cursorRect.left = self.cursor%5*17+10
+			self.cursorRect.top = self.cursor//5*28+107
+		screen.blit(self.cursorSprites[customCounter//5], self.cursorRect)
+				
+		
 
 class Chip():
 	def __init__(self, Id, code):
@@ -321,7 +494,6 @@ class MultiAttack(AttackEntity):
 class PhysicalAttack(AttackEntity):
 	def __init__(self, user, damage, damageType, status, distance, endFrame):
 		AttackEntity.__init__(self, user, damage, damageType, status, endFrame)
-		self.originalPos = user.pos[:]
 		self.distance = distance
 		self.speed = self.distance/self.endFrame
 		self.user.moveLock = True
@@ -331,16 +503,16 @@ class PhysicalAttack(AttackEntity):
 		#move
 		if self.attackTimer < self.endFrame/2:
 			#add to user's position
-			self.user.pos[0] += self.speed
+			self.user.visualOffset[0] += self.speed
 		#hit
 		if self.attackTimer == self.endFrame/2:
-			self.hitTile(self.pos)
+			if self.hitTile(self.pos):
+				animations.append(Animation(self.pos,0,"tackle.png",[0,0,80,80],0,5))
 		#move back
 		if self.attackTimer > self.endFrame/2:
 			#add to user's position
-			self.user.pos[0]-=self.speed
+			self.user.visualOffset[0]-=self.speed
 		if self.attackTimer == self.endFrame:
-			self.user.pos = self.originalPos
 			self.user.moveLock = False
 		
 		super(PhysicalAttack, self).tick()
@@ -490,8 +662,8 @@ def drawGame():
 	#sort entities from back to front for drawing
 	pokemonEntities.sort(key=lambda x: x.pos[1])
 	for entity in pokemonEntities:	#draw all entities
-		entityX = entity.pos[0]*tileWidth+tileHeight
-		entityY = entity.pos[1]*tileHeight+tileWidth
+		entityX = (entity.pos[0]+entity.visualOffset[0])*tileWidth+tileHeight
+		entityY = (entity.pos[1]+entity.visualOffset[1])*tileHeight+tileWidth
 		entity.pokemon.rect.center = entityX, entityY
 		if entity.team==1:
 			entityImage = pygame.transform.flip(entity.pokemon.image,True,False)
@@ -554,50 +726,7 @@ def drawGame():
 		timerText = monospaceFont.render("Press R to open custom!", False, (0,0,0))
 		screen.blit(timerText,(0,0))
 	
-def drawCustom(cursor):
-	cursorSpriteSheet = spritesheet("custom cursor.png")
-	cursorRect = Rect(0,0,18,18)
-	cursorSprites = cursorSpriteSheet.load_strip(cursorRect,2,colorkey=-1)
-	#cursorSprite = pygame.image.load("custom cursor.png")
-	#cursorRect = cursorSprite.get_rect()
-	
-	customWindow = pygame.image.load("custom frame.png")
-	customWindowRect = customWindow.get_rect()
-	screen.blit(customWindow, customWindowRect)
-	
-	handSprites = [chipSpriteSheet.getSpriteById(chip[0],20,16,16,colorkey=0) for chip in hand]
-	handRects = [handSprite.get_rect() for handSprite in handSprites]
-	for i in range(len(hand)):
-		handRects[i].left = i%5*17+11
-		handRects[i].top = i//5*28+108
-		
-	#draw each chip
-	for i in range(len(hand)):
-		if not selected[i]:
-			#chipSprite = chipSpriteSheet.getSpriteById(chip[0],20,16,16,colorkey=0)
-			
-			screen.blit(handSprites[i],handRects[i])
-		
-		code = codeFont.render(hand[i][1], False, (255,255,0))
-		screen.blit(code,(handRects[i].left+4,handRects[i].top+15))
-	#draw selectedChips chips
-	pos = 0
-	for chip in selectedChips:
-		chipSprite = handSprites[chip]
-		chipRect = handRects[chip]
-		chipRect.left = 103
-		chipRect.top = pos*17+17
-		screen.blit(chipSprite,chipRect)
-		pos += 1
-	#draw cursor
-	if cursor==-1:
-		#replace this with a special cursor to fit OK button
-		cursorRect.left = 95
-		cursorRect.top = 107
-	else:
-		cursorRect.left = cursor%5*17+10
-		cursorRect.top = cursor//5*28+107
-	screen.blit(cursorSprites[customCounter//5], cursorRect)
+
 	
 
 
@@ -701,107 +830,36 @@ def BattleTick():
 		frameCount += 1
 		
 	
-		
+selectedID = None #allows selecting same chip with different codes, None = no chips selected, -1 = non matching chips selected
 def CustomTick():
 	global gameTickAlias
 	global attackQueue
-	global cursor
-	global selectedChips
-	global selected
-	global hand
 	global customCounter
-	global selectedCode
 	"""open custom menu, handle cursor and chip selection, draw chips"""
 	#drawCustom
 	drawGame()
-	drawCustom(cursor)
+	custom.draw()
 	
-	
-	
-	if len(hand)==0:
-		cursor = -1
-	oldCursor = cursor
 	for event in pygame.event.get():
 		if event.type == pygame.QUIT: 
 			sys.exit()
-		if event.type == pygame.KEYDOWN and event.key == K_RIGHT:
-			if cursor == len(hand)-1:
-				cursor = -1
-			elif cursor==-1:
-				cursor = 0
-			elif cursor%5 == 4:
-				cursor = -1
-			elif cursor<len(hand)-1:
-				cursor += 1
-		if event.type == pygame.KEYDOWN and event.key == K_LEFT:
-			if cursor==0 or cursor==5:
-				cursor = -1
-			elif cursor==-1:
-				if len(hand)>=5:
-					cursor = 4
-				elif len(hand)<5 and len(hand)!=0:
-					cursor = len(hand)-1
-			else:
-				cursor -= 1
 		if event.type == pygame.KEYDOWN and event.key == K_UP:
-			if cursor>=5:
-				cursor -= 5
+			custom.moveCursor("up")
 		if event.type == pygame.KEYDOWN and event.key == K_DOWN:
-			if cursor>=0 and cursor<len(hand)-5:
-				cursor += 5
+			custom.moveCursor("down")
+		if event.type == pygame.KEYDOWN and event.key == K_LEFT:
+			custom.moveCursor("left")
+		if event.type == pygame.KEYDOWN and event.key == K_RIGHT:
+			custom.moveCursor("right")
 		if event.type == pygame.KEYDOWN and event.key == K_SPACE:
-			#close custom
-			if cursor==-1:
-				
-				#load selectedChips attacks into attackQueue
-				if selectedChips: #if player selects new chips don't keep ones from last turn
-					attackQueue = []
-				while len(selectedChips) > 0:
-					attackQueue.append(hand[selectedChips.pop()][0])
-				#remove selected chips from hand
-				newHand = []
-				for i in range(len(hand)):
-					if not selected[i]:
-						newHand.append(hand[i])
-				hand = newHand
-				#print("hand =",hand)
-				#print("selectedChips =",selectedChips)
-				#refill hand
-				cursor = 0
-				for i in range(customDraw-len(hand)):
-					#print("refilled chip")
-					if(folder):
-						hand.append(folder.pop())
-				#print(hand)
-				#print("folder =",folder)
-				selected = [False for i in range(customDraw)]
-				selectedCode = None
-						
+			selectedAttacks = custom.select()
+			if selectedAttacks!=None:	#OK is pressed
+				if selectedAttacks:	#don't overwrite if no attacks selected
+					attackQueue = selectedAttacks
 				gameTickAlias = BattleTick
-				
-			#select current chip
-			elif len(selectedChips) < 5 and not selected[cursor] and (selectedCode == None or hand[cursor][1] == selectedCode or hand[cursor][1] == "*"):
-				selectedChips.append(cursor) #select chip by adding it's cursor pos to selectedChips
-				selected[cursor] = True
-				if hand[cursor][1]!="*":
-					selectedCode = hand[cursor][1]
-				
-				#print(selectedCode)
-				
-				
-				
 		if event.type == pygame.KEYDOWN and event.key == K_BACKSPACE:
-			#select current chip
-			if len(selectedChips) > 0:
-				selected[selectedChips.pop()] = False #pop and deselect chip
-				#search selected chips to update selectedCode
-				tempCode = None
-				for chipLocation in selectedChips:
-					if hand[chipLocation][1] != None and hand[chipLocation][1]!="*":
-						tempCode = hand[chipLocation][1]
-						break
-				selectedCode = tempCode
-	#print(selectedCode)
+			custom.deselect()
+			
 				
 				
 	customCounter+=1
@@ -815,36 +873,30 @@ def CustomTick():
 gameTickAlias = TitleScreen
 boardTeam = [[1,1,1],[1,0,1],[0,0,0],[0,0,0],[2,0,2],[2,2,2]] #each row of board 0 = neutral, 1 = red, 2 = blue
 tileTypes = [[4,4,4],[1,0,3],[1,2,3],[1,2,3],[1,0,3],[4,4,4]]
-folder = [[5,"A"],[5,"A"],[6,"B"],[6,"B"],[7,"A"],[7,"A"],[8,"B"],[8,"B"],[0,"*"],[0,"*"],[0,"*"],[0,"*"],[2,"B"],[2,"B"],[3,"A"],[3,"A"],[3,"A"],[1,"B"],[1,"B"],[1,"B"],[5,"A"],[5,"A"],[6,"B"],[6,"B"],[7,"A"],[7,"A"],[8,"B"],[8,"B"],[4,"A"],[4,"A"],]
-shuffle(folder)
-player = PokemonEntity([1,1],1,0)
+#[[0,"*"],[1,"*"],[0,"A"],[0,"B"],[2,"C"]]#
+folder =  [[5,"A"],[5,"A"],[6,"B"],[6,"B"],[7,"A"],[7,"A"],[8,"B"],[8,"B"],[0,"*"],[0,"*"],[0,"*"],[0,"*"],[2,"B"],[2,"B"],[3,"A"],[3,"A"],[3,"A"],[1,"B"],[1,"B"],[1,"B"],[5,"A"],[5,"A"],[6,"B"],[6,"B"],[7,"A"],[7,"A"],[8,"B"],[8,"B"],[4,"A"],[4,"A"],]
+player = PokemonEntity([1,1],1,randint(0,9))
 enemies = [PokemonEntity([5,0],2,randint(0,9)),PokemonEntity([5,2],2,randint(0,9)),PokemonEntity([5,1],2,randint(0,9))]
 pokemonEntities = []
 pokemonEntities.append(player)
 pokemonEntities += enemies
 attackEntities = []
 
+#battle
 customGauge = pygame.image.load("custom guage.png")
 customRect = Rect(0,0,width,height)
-
-statusStrips = [spritesheet(statusFile).load_strip([0,0,80,80],statusImageCount,colorkey=-1) for statusFile,statusImageCount in [("burn.png",6),("freeze.png",10),("paralyze.png",4),("vines.png",1)]]
-			
-
-#battle
+statusStrips = [spritesheet(statusFile).load_strip([0,0,80,80],statusImageCount,colorkey=-1) for statusFile,statusImageCount in [("burn.png",6),("freeze.png",10),("paralyze.png",4),("vines.png",1)]]	
 frameCount = 0
 attackQueue = []
-customDraw = 5 #number of chips to draw each turn
 
 #custom
-hand = []
-cursor = 0
-for i in range(customDraw):
-	hand.append(folder.pop())
-selectedChips = []
-selected = [False for i in range(customDraw)]
-selectedCode = None
+custom = Custom(folder, 5)
 customCounter = 0
 animations = []
+
+def greySurface(surface):
+	arr = PixelArray(surface)
+	arr.replace((232,216,128),(183,183,183))
 
 while True:
 	start = datetime.now()
@@ -856,3 +908,6 @@ while True:
 	pygame.display.flip()
 	if(sleepTime>0):
 		time.sleep(sleepTime)
+		
+		
+    
