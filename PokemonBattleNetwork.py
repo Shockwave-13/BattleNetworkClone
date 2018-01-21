@@ -95,7 +95,7 @@ class PokemonEntity():
 		newY = self.pos[1]+y
 		if newX<0 or newX>5 or newY<0 or newY>2:	#catch out of bounds
 			return
-		for entity in pokemonEntities:	#catch collisions
+		for entity in board.pokemonEntities:	#catch collisions
 			if entity.pos == self.pos:	#don't check self
 				continue
 			if entity.pos == [newX,newY]:
@@ -115,7 +115,7 @@ class PokemonEntity():
 		if self.statusTimer==0 or self.status<=2:
 			newX = int(x)
 			newY = int(y)
-			if boardTeam[newX][newY]==0 or self.team==boardTeam[newX][newY]:
+			if board.boardTeam[newX][newY]==0 or self.team==board.boardTeam[newX][newY]:
 				#move allowed
 				self.pos = [newX,newY]
 			
@@ -131,14 +131,14 @@ class PokemonEntity():
 				self.statusTimer = 0
 		#tile bonus
 		x,y = self.pos
-		if typeEffectiveness(element,tileTypes[x][y])==2:
+		if typeEffectiveness(element,board.tileTypes[x][y])==2:
 			effectiveness *= 2
-			tileTypes[x][y] = 0
+			board.tileTypes[x][y] = 0
 					
 		if effectiveness==2:
-			animations.append(Animation(self.pos,0,"super effective.png",[0,0,48,48],0,4))
+			board.animations.append(Animation(self.pos,0,"super effective.png",[0,0,48,48],0,4))
 		elif effectiveness==4:
-			animations.append(Animation(self.pos,0,"super effective.png",[0,48,48,48],0,4))
+			board.animations.append(Animation(self.pos,0,"super effective.png",[0,48,48,48],0,4))
 		#print("dealt",damage*effectiveness)
 		self.damage(damage*effectiveness)
 		
@@ -177,6 +177,8 @@ class PokemonEntity():
 			self.statusTimer -= 1
 		x,y = self.pos
 
+		
+
 class Navi(PokemonEntity):
 	def __init__(self, pos, team, element):
 		PokemonEntity.__init__(self, pos, team, element)
@@ -203,7 +205,7 @@ class Navi(PokemonEntity):
 	def tick(self):
 		PokemonEntity.tick(self)
 		x,y = self.pos
-		if tileTypes[x][y]==self.element and self.healCooldown==0:
+		if board.tileTypes[x][y]==self.element and self.healCooldown==0:
 			self.pokemon.totalStats[0]+=1
 			self.healCooldown=15
 		self.healCooldown -= 1
@@ -230,12 +232,16 @@ class Custom():
 	""""handles the data for the custom window"""
 	def __init__(self, folder, customDraw):
 		self.folder = folder[:]
-		shuffle(self.folder)
 		self.customDraw = customDraw
+		self.cursor = 0
 		self.hand = []
-		self.refresh()
+		self.selectedChips = []
 		self.extraMode = ["discard","recycle","restock"]
 		self.extraUsed = False
+		self.counter = 0
+		
+		#shuffle(self.folder)
+		#self.refresh()
 		
 		#resources for drawing
 		self.cursorRect = Rect(0,0,18,18)
@@ -276,7 +282,7 @@ class Custom():
 			drawAmount = len(self.folder)
 		for i in range(drawAmount):
 			if self.folder:
-				self.hand.append(self.folder.pop())
+				self.hand.append(self.folder.pop(0))
 			else:
 				break	
 		self.selectedCode = None
@@ -369,7 +375,7 @@ class Custom():
 					else:
 						removedChips.append(self.hand[i])
 				if "recycle" in self.extraMode:
-					self.folder = removedChips + self.folder
+					self.folder += removedChips
 					
 				self.hand = newHand
 				self.selectedChips = []
@@ -438,7 +444,8 @@ class Custom():
 		
 		#print(self.selectedCode,self.selectedID)
 		
-	def draw(self):		
+	def draw(self):
+		board.draw()
 		screen.blit(self.customWindow, self.customWindowRect)
 		#draw extra button
 		if self.extraButtons:
@@ -447,52 +454,53 @@ class Custom():
 			else:
 				screen.blit(self.extraButtons[0],(95,136,24,16))
 		#draw each chip
-		for i in range(len(self.hand)):
-			self.handRects[i].left = i%5*17+11
-			self.handRects[i].top = i//5*28+108
+		if custom.hand:
+			for i in range(len(self.hand)):
+				self.handRects[i].left = i%5*17+11
+				self.handRects[i].top = i//5*28+108
+				
+			for i in range(len(self.hand)):
+				chipID, chipCode = self.hand[i]
+				if not self.selected[i]:
+					#if not selectable grey out
+					if len(self.selectedChips)<5 and (self.selectedCode==None or self.selectedCode==chipCode or self.selectedID==chipID or (self.selectedCode!=-1 and chipCode=="*")):
+						unGreySurface(self.handSprites[i])
+					else:
+						greySurface(self.handSprites[i])
+						
+					screen.blit(self.handSprites[i],self.handRects[i])
+				
+				code = codeFont.render(self.hand[i][1], False, (255,255,0))
+				screen.blit(code,(self.handRects[i].left+4,self.handRects[i].top+15))
+				
+			#draw details of current chip
+			chipImageStrip = spritesheet("chip images.png").load_strip([0,0,56,48],10)
+			elementStrip = spritesheet("elements.png").load_strip([0,0,14,14],9,colorkey=-1)
 			
-		for i in range(len(self.hand)):
-			chipID, chipCode = self.hand[i]
-			if not self.selected[i]:
-				#if not selectable grey out
-				if len(self.selectedChips)<5 and (self.selectedCode==None or self.selectedCode==chipCode or self.selectedID==chipID or (self.selectedCode!=-1 and chipCode=="*")):
-					unGreySurface(self.handSprites[i])
-				else:
-					greySurface(self.handSprites[i])
-					
-				screen.blit(self.handSprites[i],self.handRects[i])
+			if self.cursor<0:
+				chipID = len(chipImageStrip)-1
+			else:
+				currentChip = chipID,chipCode= self.hand[self.cursor]
+				chipName = chipData[chipID][0]
+				chipNameText = monospaceFont.render(chipName,False,(255,255,255))
+				chipCodeText = monospaceFont.render(chipCode,False,(255,255,0))
+				chipDamageText = monospaceFont.render("10",False,(255,255,255))
+				screen.blit(chipNameText,(15,17))
+				screen.blit(chipCodeText,(15,89))
+				screen.blit(elementStrip[0],(25,89))#need to assign elements to chipIDs and damage
+				screen.blit(chipDamageText,(69,89))
+			if(chipID<len(chipImageStrip)):
+				screen.blit(chipImageStrip[chipID],(15,29))
 			
-			code = codeFont.render(self.hand[i][1], False, (255,255,0))
-			screen.blit(code,(self.handRects[i].left+4,self.handRects[i].top+15))
-			
-		#draw details of current chip
-		chipImageStrip = spritesheet("chip images.png").load_strip([0,0,56,48],10)
-		elementStrip = spritesheet("elements.png").load_strip([0,0,14,14],9,colorkey=-1)
-		
-		if self.cursor<0:
-			chipID = len(chipImageStrip)-1
-		else:
-			currentChip = chipID,chipCode= self.hand[self.cursor]
-			chipName = chipData[chipID][0]
-			chipNameText = monospaceFont.render(chipName,False,(255,255,255))
-			chipCodeText = monospaceFont.render(chipCode,False,(255,255,0))
-			chipDamageText = monospaceFont.render("10",False,(255,255,255))
-			screen.blit(chipNameText,(15,17))
-			screen.blit(chipCodeText,(15,89))
-			screen.blit(elementStrip[0],(25,89))#need to assign elements to chipIDs and damage
-			screen.blit(chipDamageText,(69,89))
-		if(chipID<len(chipImageStrip)):
-			screen.blit(chipImageStrip[chipID],(15,29))
-		
-		#draw selectedChips chips
-		pos = 0
-		for chip in self.selectedChips:
-			chipSprite = self.handSprites[chip]
-			chipRect = self.handRects[chip]
-			chipRect.left = 103
-			chipRect.top = pos*17+17
-			screen.blit(chipSprite,chipRect)
-			pos += 1
+			#draw selectedChips chips
+			pos = 0
+			for chip in self.selectedChips:
+				chipSprite = self.handSprites[chip]
+				chipRect = self.handRects[chip]
+				chipRect.left = 103
+				chipRect.top = pos*17+17
+				screen.blit(chipSprite,chipRect)
+				pos += 1
 			
 		#draw cursor
 		if self.cursor<0:
@@ -502,7 +510,13 @@ class Custom():
 		else:
 			self.cursorRect.left = self.cursor%5*17+10
 			self.cursorRect.top = self.cursor//5*28+107
-		screen.blit(self.cursorSprites[customCounter//5], self.cursorRect)
+		screen.blit(self.cursorSprites[custom.counter//5], self.cursorRect)
+		
+	def tick(self):
+		self.counter+=1
+		if self.counter >= 10:
+			self.counter = 0
+		
 		
 class Editor():
 	"""stores data for folder editing menu"""
@@ -528,7 +542,7 @@ class Editor():
 			self.selectedIndex = self.offset[self.cursorSide]+self.cursor[self.cursorSide]
 		else:
 			currentIndex = self.offset[self.cursorSide]+self.cursor[self.cursorSide]
-			print("current Index",currentIndex)
+			#print("current Index",currentIndex)
 			#double tap
 			if self.cursorSide == self.selectedSide and self.selectedIndex == currentIndex:
 				if self.cursorSide == 0:
@@ -558,7 +572,7 @@ class Editor():
 			self.selectedIndex = None
 		
 						
-		print("selected",self.selectedSide,self.selectedIndex)
+		#print("selected",self.selectedSide,self.selectedIndex)
 		
 	def scroll(self, direction):
 		if self.cursorSide == 0:
@@ -648,8 +662,9 @@ class ChipAttack():
 	def use(self):
 		"""converts self into attackEntity and returns it"""
 		#create AttackEntity corresponding to chip
-		attackAlias, subId = attackData[self.Id]
-		return attackAlias(player, self, subId)
+		if self.Id < len(attackData):
+			attackAlias, subId = attackData[self.Id]
+			return attackAlias(player, self, subId)
 		
 	def mergeBonuses(self, chipAttack):
 		self.plusBonus += chipAttack.plusBonus
@@ -688,7 +703,7 @@ class AttackEntity():
 			
 		#move animation data into animation object
 		#self.animation = Animation(user.pos[:], spriteFile, spriteCoords, animationDelay, endFrame)
-		#animations.append(self.animation)
+		#board.animations.append(self.animation)
 		
 		
 	def tick(self):
@@ -705,7 +720,7 @@ class AttackEntity():
 			
 		
 		#print("hitTile",pos)
-		for entity in pokemonEntities:
+		for entity in board.pokemonEntities:
 			if entity.pos==pos and entity.team!=self.team:
 				#print("hit",pos,"for",self.damage,"damage")
 				entity.hit(self.damage, self.element, self.status)
@@ -713,25 +728,25 @@ class AttackEntity():
 		#effects
 		#if miss check tile element
 		#if tile element is weak to attack set tile to null
-		if typeEffectiveness(self.element,tileTypes[x][y])==2:
+		if typeEffectiveness(self.element,board.tileTypes[x][y])==2:
 			#print("burnt tile",pos)
-			tileTypes[x][y] = 0
+			board.tileTypes[x][y] = 0
 		for effect in self.chipAttack.effects:
 			if effect == "SetRed":
-				tileTypes[x][y] = 1
+				board.tileTypes[x][y] = 1
 			elif effect == "SetBlue":
-				tileTypes[x][y] = 2
+				board.tileTypes[x][y] = 2
 			elif effect == "SetYellow":
-				tileTypes[x][y] = 3
+				board.tileTypes[x][y] = 3
 			elif effect == "SetGreen":
-				tileTypes[x][y] = 4
+				board.tileTypes[x][y] = 4
 		return success
 				
 
 	def shootRow(self, pos):
 		"""	shoots down row at pos
 			shoots right if red team or left if blue team"""
-		for entity in pokemonEntities:
+		for entity in board.pokemonEntities:
 			#not same team
 			#in same row
 			#right if red or left if blue
@@ -757,7 +772,7 @@ class AttackEntity():
 			bestCol = 7
 		elif self.team==2:
 			bestCol = -1
-		for entity in pokemonEntities:
+		for entity in board.pokemonEntities:
 			if entity.team==self.team or abs(self.pos[0]-entity.pos[0]>maxRange):
 				continue
 			if self.team==1:
@@ -793,7 +808,7 @@ class ShootAttack(AttackEntity):
 		self.status = 0
 		AttackEntity.__init__(self, user, chipAttack, self.endFrame)
 		user.moveLock = True
-		animations.append(Animation(user.pos[:], user.team, "shoot.png", [0,0,80,80], 0, 10))
+		board.animations.append(Animation(user.pos[:], user.team, "shoot.png", [0,0,80,80], 0, 10))
 		
 	def tick(self):
 		#player should be immobile upon activating
@@ -812,7 +827,7 @@ class SwordAttack(AttackEntity):
 		self.shootFrame, self.status, self.endFrame = swordSubData[subId]
 		AttackEntity.__init__(self, user, chipAttack, self.endFrame)
 		user.moveLock = True
-		animations.append(Animation([user.pos[0]+1,user.pos[1]+1], user.team, "wideSword.png", [0,0,80,240], 0, 10))
+		board.animations.append(Animation([user.pos[0]+1,user.pos[1]+1], user.team, "wideSword.png", [0,0,80,240], 0, 10))
 		
 	def tick(self):
 		#player should be immobile upon activating
@@ -857,7 +872,7 @@ class PhysicalAttack(AttackEntity):
 		#hit
 		if self.attackTimer == self.endFrame/2:
 			if self.hitTile(self.pos):
-				animations.append(Animation(self.pos,0,"tackle.png",[0,0,80,80],0,5))
+				board.animations.append(Animation(self.pos,0,"tackle.png",[0,0,80,80],0,5))
 		#move back
 		if self.attackTimer > self.endFrame/2:
 			#add to user's position
@@ -882,7 +897,7 @@ class TargetAttack(AttackEntity):
 			self.pos = target.pos[:]
 		else:
 			self.pos = [-10,-10]
-		animations.append(Animation(self.pos, user.team, "target shot.png", [0,0,80,80], 0, 10))
+		board.animations.append(Animation(self.pos, user.team, "target shot.png", [0,0,80,80], 0, 10))
 	
 	def tick(self):
 		if self.attackTimer == self.hitFrame:
@@ -916,7 +931,7 @@ class MovingTileAttack(AttackEntity):
 	def tick(self):
 		#move every moveDelay frames
 		if self.attackTimer%self.moveDelay == 0:
-			animations.append(Animation(self.pos,self.team,"shockwave.png",[0,0,80,80],0,4))
+			board.animations.append(Animation(self.pos,self.team,"shockwave.png",[0,0,80,80],0,4))
 			if self.team == 1:
 				self.pos[0] += 1
 			elif self.team == 2:
@@ -999,61 +1014,12 @@ def drawAttackQueue():
 		offset-=2
 
 	
-def drawBoard():
-	for i in range(6):
-		for j in range(3):
-			#check type
-			screen.blit(tileBoarderStrip[boardTeam[i][j]], tileBoarderRects[i][j])
-			screen.blit(tileStrip[tileTypes[i][j]], tileRects[i][j])
-					
-def drawGame():
-	screen.blit(background, backgroundRect)
-	drawBoard()
-	#sort entities from back to front for drawing
-	pokemonEntities.sort(key=lambda x: x.pos[1])
-	for entity in pokemonEntities:	#draw all entities
-		entity.draw()
-			
-	
-	"""for attack in attackEntities:
-		x = attack.pos[0]*tileWidth+tileHeight
-		y = attack.pos[1]*tileHeight+tileWidth
-		
-		attack.rect.center = x,y
-		attackFrame = attack.attackTimer-attack.animationDelay
-		animationLength = len(attack.strip)-1
-		if attackFrame>0:
-			if attack.repeatAnimation:
-				attackImage = attack.strip[attackFrame%animationLength]
-			elif attackFrame <= animationLength:
-				attackImage = attack.strip[attackFrame]
-			else:
-				continue
-				
-			if attack.team==1:
-				attackImage = pygame.transform.flip(attackImage,True,False)
-			screen.blit(attackImage, attack.rect)"""
-			
-			
-	for animation in animations:
-		screen.blit(animation.getImage(),animation.getRect())
-		
-	drawAttackQueue()
-	
-	customRect.right = frameCount*width/turnFrames
-	screen.blit(customGauge,customRect)
-	if frameCount >= turnFrames:
-		timerText = monospaceFont.render("Press R to open custom!", False, (0,0,0))
-		screen.blit(timerText,(0,0))
-	
 
 	
 
 
 def TitleScreen():
-	global pokemonEntities
 	global custom
-	global enemies	
 	global gameTickAlias
 	textsurface = monospaceFont.render("Press Enter to Start\nPress F to edit folder", False, (255,255,255))
 	title = pygame.image.load("title.png")
@@ -1066,17 +1032,25 @@ def TitleScreen():
 	pygame.display.flip()
 	for event in pygame.event.get():
 		if event.type == pygame.KEYDOWN and event.key == K_RETURN:
+			custom = Custom(folder, 5)
+			shuffle(custom.folder)
+			custom.refresh()
+			board.enemies = [Navi([4,1],2,randint(0,9)),Navi([5,0],2,randint(0,9)),Navi([5,2],2,randint(0,9))]
+			board.pokemonEntities = [player]+board.enemies
 			gameTickAlias = CustomTick
 		if event.type == pygame.KEYDOWN and event.key == K_f:
 			gameTickAlias = FolderTick
 		if event.type == pygame.KEYDOWN and event.key == K_s:		
 			custom = Custom(folder,10)
-			enemies = [SandBag([4,1],0)]
-			pokemonEntities = [player]+enemies
+			custom.refresh()
+			board.enemies = [SandBag([4,1],0)]
+			board.pokemonEntities = [player]+board.enemies
 			gameTickAlias = CustomTick
 
 def FolderTick():
 	global gameTickAlias
+	global custom
+	global folder
 	"""a menu to allow editing folder and other data related to the player"""
 	#display folder and chips
 	editor.draw()
@@ -1098,13 +1072,12 @@ def FolderTick():
 			editor.select()
 		if event.type == pygame.KEYDOWN and event.key == K_ESCAPE:
 			#save changes
-			print("exiting editor")
-			custom.folder = editor.folder[:]
+			folder = editor.folder
+			custom = Custom(folder, 5)
 			gameTickAlias = TitleScreen
 					
 def BattleTick():
 	global gameTickAlias
-	global frameCount
 	global attackQueue
 	for event in pygame.event.get():
 		if event.type == pygame.QUIT: 
@@ -1125,60 +1098,60 @@ def BattleTick():
 			if not player.moveLock:
 				if attackQueue:				
 					attack = attackQueue.pop()
-					attackEntities.append(attack.use())					
-					
+					newAttack = attack.use()
+					if newAttack:
+						board.attackEntities.append(newAttack)
+						
 		if event.type == pygame.KEYDOWN and event.key == K_r:
-			if frameCount >= turnFrames:
+			if board.frameCount >= board.turnFrames:
 				#print("enter custom")
 				gameTickAlias = CustomTick
-				frameCount = 0
+				board.frameCount = 0
 					
-	for enemy in enemies:
+	for enemy in board.enemies:
 		if isinstance(enemy,Navi) and randint(0,20)==0:
 			moves = ["left","right","up","down"]
 			enemy.moveDirection(moves[randint(0,3)])
 		#elif randint(0,40)==0:
 		#	shootRow(enemy.pos,10,0,2,True)
 			
-	for entity in pokemonEntities:
+	for entity in board.pokemonEntities:
 		if isinstance(entity, Navi) and entity.pokemon.totalStats[0]<= 0:
-			pokemonEntities.remove(entity)
-			enemies.remove(entity)
+			board.pokemonEntities.remove(entity)
+			board.enemies.remove(entity)
 			
-	if not enemies:
+	if not board.enemies:
 		newBadGuy = Navi([5,1],2,randint(0,9))
-		pokemonEntities.append(newBadGuy)
-		enemies.append(newBadGuy)
+		board.pokemonEntities.append(newBadGuy)
+		board.enemies.append(newBadGuy)
 		
-	for attackEntity in attackEntities:
+	for attackEntity in board.attackEntities:
 		attackEntity.tick()
 		if attackEntity.attackTimer > attackEntity.endFrame:
-			attackEntities.remove(attackEntity)		
+			board.attackEntities.remove(attackEntity)		
 			
-	for animation in animations:
+	for animation in board.animations:
 		if animation.animationTimer >= animation.endFrame:
-			animations.remove(animation)
+			board.animations.remove(animation)
 		animation.tick()
 		
-	for entity in pokemonEntities:
+	for entity in board.pokemonEntities:
 		entity.tick()
 		
-	drawGame()
+	board.draw()
 	
-	if frameCount >= turnFrames:
-		frameCount = turnFrames
+	if board.frameCount >= board.turnFrames:
+		board.frameCount = board.turnFrames
 	else:
-		frameCount += 1
+		board.frameCount += 1
 		
 	
-selectedID = None #allows selecting same chip with different codes, None = no chips selected, -1 = non matching chips selected
 def CustomTick():
 	global gameTickAlias
 	global attackQueue
-	global customCounter
 	"""open custom menu, handle cursor and chip selection, draw chips"""
 	#drawCustom
-	drawGame()
+	board.draw
 	custom.draw()
 	
 	for event in pygame.event.get():
@@ -1194,6 +1167,8 @@ def CustomTick():
 			custom.moveCursor("right")
 		if event.type == pygame.KEYDOWN and event.key == K_RETURN:
 			custom.cursor = -1
+		if event.type == pygame.KEYDOWN and event.key == K_ESCAPE:
+			gameTickAlias = TitleScreen
 		if event.type == pygame.KEYDOWN and event.key == K_SPACE:
 			selectedAttacks = custom.select()
 			if selectedAttacks!=None:	#OK is pressed
@@ -1203,11 +1178,7 @@ def CustomTick():
 		if event.type == pygame.KEYDOWN and event.key == K_BACKSPACE:
 			custom.deselect()
 			
-				
-				
-	customCounter+=1
-	if customCounter >= 10:
-		customCounter = 0
+	custom.tick()			
 		
 def load(fileName):
 	saveFile = open(fileName, "r")
@@ -1217,33 +1188,71 @@ def save(fileName):
 	saveFile = open(fileName, "w")
 	json.dump(folder,saveFile)
 	
-attackData = [[ShootAttack, 0], [SwordAttack, 0], [PhysicalAttack, 0], [TargetAttack, 0], [MovingTileAttack, 0], [SwordAttack, 1], [SwordAttack, 2], [SwordAttack, 3],[SwordAttack, 4],[ShootAttack, 0]]		
+		
+class Board():
+	"""class to hold tiles and entities of a battle"""
+	def __init__(self):
+		self.animations = []
+		self.attackEntities = []
+		self.boardTeam = [[1,1,1],[1,0,1],[0,0,0],[0,0,0],[2,0,2],[2,2,2]] #each row of board 0 = neutral, 1 = red, 2 = blue
+		self.tileTypes = [[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0]]
+		self.pokemonEntities = []
+		self.turnFrames = 100
+		self.enemies = []
+				
+		self.pokemonEntities = [player] + self.enemies
+		#resources for drawing
+		self.customGauge = pygame.image.load("custom guage.png")
+		self.customRect = Rect(0,0,width,height)
+		self.frameCount = 0
+		
+	def draw(self):
+		screen.blit(background, backgroundRect)
+		for i in range(6):
+			for j in range(3):
+				#check type
+				screen.blit(tileBoarderStrip[self.boardTeam[i][j]], tileBoarderRects[i][j])
+				screen.blit(tileStrip[self.tileTypes[i][j]], tileRects[i][j])
+				
+		#sort entities from back to front for drawing
+		self.pokemonEntities.sort(key=lambda x: x.pos[1])
+		for entity in self.pokemonEntities:	#draw all entities
+			entity.draw()				
+				
+		for animation in self.animations:
+			screen.blit(animation.getImage(),animation.getRect())
+			
+		drawAttackQueue()
+		
+		self.customRect.right = self.frameCount*width/self.turnFrames
+		screen.blit(self.customGauge,self.customRect)
+		if self.frameCount >= self.turnFrames:
+			timerText = monospaceFont.render("Press R to open custom!", False, (0,0,0))
+			screen.blit(timerText,(0,0))
+		
+			
+		
+		
+		
+	
+	
+attackData = [[ShootAttack, 0], [SwordAttack, 0], [PhysicalAttack, 0], [TargetAttack, 0], [MovingTileAttack, 0], [SwordAttack, 1], [SwordAttack, 2], [SwordAttack, 3],[SwordAttack, 4]]		
 	
 #game
 gameTickAlias = TitleScreen
-boardTeam = [[1,1,1],[1,0,1],[0,0,0],[0,0,0],[2,0,2],[2,2,2]] #each row of board 0 = neutral, 1 = red, 2 = blue
-tileTypes = [[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0]]
+
 folder = [[5,"A"],[5,"A"],[6,"B"],[6,"B"],[7,"A"],[7,"A"],[8,"B"],[8,"B"],[0,"*"],[0,"*"],[2,"B"],[2,"B"],[3,"A"],[3,"A"],[1,"B"],[1,"B"],[10,"*"],[10,"*"],[11,"*"],[11,"*"],[12,"*"],[12,"*"],[13,"*"],[13,"*"],[14,"*"],[15,"*"],[16,"*"],[17,"*"],[9,"*"],[9,"*"]]
 player = Navi([1,1],1,randint(0,9))
-enemies = [Navi([4,1],2,randint(0,9)),Navi([5,0],2,randint(0,9)),Navi([5,2],2,randint(0,9))]
-pokemonEntities = []
-pokemonEntities.append(player)
-pokemonEntities += enemies
-print(pokemonEntities)
-attackEntities = []
+board = Board()
+
 
 #battle
-turnFrames = 100
-customGauge = pygame.image.load("custom guage.png")
-customRect = Rect(0,0,width,height)
 statusStrips = [spritesheet(statusFile).load_strip([0,0,80,80],statusImageCount,colorkey=-1) for statusFile,statusImageCount in [("burn.png",6),("freeze.png",10),("paralyze.png",4),("vines.png",1)]]	
-frameCount = 0
+
 attackQueue = []
-animations = []
 
 #custom
-custom = Custom(folder, 5)
-customCounter = 0
+custom = None
 editor = Editor(folder)
 
 
