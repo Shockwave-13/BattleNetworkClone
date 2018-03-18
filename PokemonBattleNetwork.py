@@ -59,9 +59,29 @@ class Entity():
 	def __init__(self, pos):
 		self.pos = pos
 		
-class PokemonEntity():
+	def draw(self):
+		NotImplemented
+
+class TileClaim(Entity):
+	"""claims a tile for an entity to move to"""
+	def __init__(self, pos, entity, delay):
+		self.entity = entity
+		self.delay = delay
+		self.timer = 0
+		PokemonEntity.__init__(self,pos,0,0)
+	
+	def hit(self, damage, element, status):
+		NotImplemented
+	
+	def tick(self):
+		if self.timer == self.delay:
+			self.entity.pos = self.pos
+		self.timer += 1		
+
+class PokemonEntity(Entity):
+	"""an Entity that is also a pokemon that can move, be hit, be affected by status ect"""
 	def __init__(self, pos, team, element):
-		self.pos = pos
+		Entity.__init__(self,pos)
 		self.team = team
 		self.moveLock = False
 		self.status = 0
@@ -138,12 +158,12 @@ class PokemonEntity():
 		
 		if status==1: #flinch
 			self.status = 1
-			self.statusTimer = 60
+			self.statusTimer = 120
 		if status>1 and self.statusTimer==0:
 			#if you don't resist status type
 			self.status = status
 			#more time if you are weak to status type?
-			self.statusTimer = 60
+			self.statusTimer = 90
 					
 	def damage(self, damage):
 		NotImplemented
@@ -155,7 +175,7 @@ class PokemonEntity():
 			Y = (self.pos[1]+self.visualOffset[1])*tileHeight+tileWidth+moveOffset
 			self.rect.center = X,Y
 			
-			if not(self.status==1 and self.statusTimer%2==1): #don't draw every other frame if flinched
+			if not(self.status==1 and self.statusTimer%4>1): #don't draw every other frame if flinched
 				screen.blit(self.image, self.rect)
 				
 			if self.status>1 and self.statusTimer>0:
@@ -166,7 +186,7 @@ class PokemonEntity():
 							
 	def tick(self):
 		if self.statusTimer>0:
-			if self.status==2 and self.statusTimer%6==0: #burn damage over time
+			if self.status==2 and self.statusTimer%12==0: #burn damage over time
 				self.hit(1,1,0)
 			self.statusTimer -= 1
 		x,y = self.pos
@@ -174,6 +194,7 @@ class PokemonEntity():
 			self.moveCooldown -= 1
 
 class Navi(PokemonEntity):
+	"""a Pokemon Entity that can hold chips"""
 	def __init__(self, pos, team, element):
 		PokemonEntity.__init__(self, pos, team, element)
 		self.pokemon = pokemon(randint(1,493),randint(1,15))
@@ -181,12 +202,19 @@ class Navi(PokemonEntity):
 		self.rect = self.pokemon.rect
 		if self.team==1:
 			self.image = pygame.transform.flip(self.image,True,False)
-		self.totalDamage = 0
 		self.healCooldown = 0
 		self.attackQueue = []
 		
 	def damage(self, damage):
 		self.pokemon.totalStats[0] -= damage
+	
+	def useChip(self):
+		if not self.moveLock:
+			if self.attackQueue:				
+				attack = self.attackQueue.pop()
+				newAttack = attack.use(self)
+				if newAttack:
+					board.attackEntities.append(newAttack)
 	
 	def draw(self):
 		PokemonEntity.draw(self)
@@ -210,11 +238,14 @@ class Navi(PokemonEntity):
 		x,y = self.pos
 		if board.tileTypes[x][y]==self.element and self.healCooldown==0:
 			self.pokemon.totalStats[0]+=1
-			self.healCooldown=15
+			self.healCooldown=30
 		self.healCooldown -= 1
 		
 class Player(Navi):
 	"""Navi that looks at buttonInput"""
+	def __init__(self, pos, element):
+		Navi.__init__(self, pos, 1, element)
+		
 	def tick(self):
 		Navi.tick(self)
 		#look at buttonInput
@@ -227,12 +258,8 @@ class Player(Navi):
 		if buttonInput[K_RIGHT]:
 			player.moveDirection("right")
 		if buttonDown[K_SPACE]:
-			if not self.moveLock:
-				if self.attackQueue:				
-					attack = self.attackQueue.pop()
-					newAttack = attack.use()
-					if newAttack:
-						board.attackEntities.append(newAttack)
+			self.useChip()
+			
 	def draw(self):
 		Navi.draw(self)
 		#draw text for first chip
@@ -252,6 +279,18 @@ class Player(Navi):
 			currentChipText = monospaceFont.render(chipText,False,(0,0,0))
 			screen.blit(currentChipText,(0,height-15))
 		
+class Enemy(Navi):
+	def __init__(self, pos, element):
+		Navi.__init__(self, pos, 2, element)
+		
+	def tick(self):
+		Navi.tick(self)
+		if randint(0,20)==0:
+			moves = ["left","right","up","down"]
+			self.moveDirection(moves[randint(0,3)])
+		elif randint(0,90)==0:
+			self.useChip()
+					
 class SandBag(PokemonEntity):
 	def __init__(self, pos, team):
 		PokemonEntity.__init__(self, pos, team, 0)
@@ -269,20 +308,6 @@ class SandBag(PokemonEntity):
 		Y = self.pos[1]*tileHeight+tileWidth+25
 		screen.blit(damageText,(X,Y))
 
-class TileClaim(PokemonEntity):
-	"""claims a tile for an entity to move to"""
-	def __init__(self, pos, entity, delay):
-		self.entity = entity
-		self.delay = delay
-		self.timer = 0
-		PokemonEntity.__init__(self,pos,0,0)
-		
-		
-	def tick(self):
-		if self.timer == self.delay:
-			self.entity.pos = self.pos
-		self.timer += 1
-		
 class Cursor():
 	"""class to navigate a menu using cursor"""
 	def __init__(self, size, vertical, wrap):
@@ -385,20 +410,17 @@ class CustomCursor(Cursor):
 		
 		self.moveCooldown = 4
 		
-	
 
 class Board():
 	"""class to hold tiles and entities of a battle"""
-	def __init__(self):
-		self.animations = []
+	def __init__(self, entities):
+		self.pokemonEntities = entities
 		self.attackEntities = []
-		self.boardTeam = [[1,1,1],[1,1,1],[1,1,1],[2,2,2],[2,2,2],[2,2,2]] #each row of board 0 = neutral, 1 = red, 2 = blue
+		self.animations = []
+		self.boardTeam = [[1,1,1],[0,0,0],[0,0,0],[0,0,0],[0,0,0],[2,2,2]] #each row of board 0 = neutral, 1 = red, 2 = blue
 		self.tileTypes = [[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0]]
-		self.pokemonEntities = []
-		self.turnFrames = 256
-		self.enemies = []
-				
-		self.pokemonEntities = [player] + self.enemies
+		self.turnFrames = 128
+		
 		#resources for drawing
 		self.customGauge = pygame.image.load("custom guage.png")
 		self.customRect = Rect(0,0,width,height)
@@ -410,7 +432,7 @@ class Board():
 		for i in range(6):
 			self.tileRects.append([Rect(i*tileWidth,j*tileHeight+tileWidth,80,40) for j in range(3)])
 			self.tileBorderRects.append([Rect(i*tileWidth,j*tileHeight+tileWidth,80,40) for j in range(3)])
-		
+	
 	def draw(self):
 		screen.blit(background, backgroundRect)
 		for i in range(6):
@@ -434,6 +456,43 @@ class Board():
 			timerText = monospaceFont.render("Press R to open custom!", False, (0,0,0))
 			screen.blit(timerText,(0,0))
 			
+	def tick(self):
+		for entity in self.pokemonEntities:
+			if isinstance(entity, Navi) and entity.pokemon.totalStats[0]<= 0:
+				self.pokemonEntities.remove(entity)
+			elif isinstance(entity, TileClaim) and entity.timer>entity.delay:
+				self.pokemonEntities.remove(entity)
+			
+		for attackEntity in self.attackEntities:
+			attackEntity.tick()
+			if attackEntity.attackTimer > attackEntity.endFrame:
+				self.attackEntities.remove(attackEntity)		
+				
+		for animation in self.animations:
+			if animation.animationTimer >= animation.endFrame:
+				self.animations.remove(animation)
+			animation.tick()
+		
+		hasEnemies = False
+		hasPlayer = False
+		for entity in self.pokemonEntities:
+			entity.tick()
+			if isinstance(entity, Enemy):
+				hasEnemies = True
+			elif isinstance(entity, Player):
+				hasPlayer = True
+		
+		if not hasPlayer or not hasEnemies:
+			endBattle()
+			
+			
+		self.draw()
+		
+		if self.frameCount >= self.turnFrames:
+			self.frameCount = self.turnFrames
+		else:
+			self.frameCount += 1
+			
 			
 class Custom():
 	""""handles the data for the custom window"""
@@ -446,7 +505,6 @@ class Custom():
 		self.extraMode = extraMode
 		self.extraUsed = False
 		self.counter = 0
-		self.moveCooldown = 0
 		
 		#shuffle(self.folder)
 		#self.refresh()
@@ -481,10 +539,6 @@ class Custom():
 		self.refillHand()
 		self.extraUsed = False
 		self.cursor = CustomCursor(len(self.hand))
-		#if len(self.hand)==0:
-		#	self.cursor = -1
-		#else:
-		#	self.cursor = 0
 
 	def refillHand(self):
 		#draw chips to refill hand		
@@ -502,7 +556,6 @@ class Custom():
 		self.selected = [False for i in range(self.customDraw)]
 		self.handSprites = [chipSpriteSheet.getSpriteById(chip[0],20,16,16,colorkey=0) for chip in self.hand]
 		self.handRects = [handSprite.get_rect() for handSprite in self.handSprites]
-					
 
 	def select(self):
 		"""selects the chip at the current cursor position and adds it to selectedChips
@@ -511,18 +564,10 @@ class Custom():
 		if self.cursor.pos==-1:
 			#load selectedChips attacks into attackQueue
 			attackQueue = []
-			while self.selectedChips:
-				currentChip = self.hand[self.selectedChips.pop(0)]
-				if currentChip[0] == 9 and attackQueue: #if attack+10
-					#print("found attack+")
-					attackQueue[0].plusBonus += 10
-				elif currentChip[0]>= 10 and currentChip[0]<14 and attackQueue: #+status
-					attackQueue[0].status = currentChip[0]-8
-				elif currentChip[0] in range(14,18) and attackQueue:
-					effectNames = ["SetRed","SetBlue","SetYellow","SetGreen"]
-					attackQueue[0].effects.append(effectNames[currentChip[0]-14])
-				else:
-					attackQueue.insert(0,ChipAttack(currentChip))
+			
+			for selectedChip in self.selectedChips:
+				attackQueue.append(ChipAttack(self.hand[selectedChip]))
+			attackQueue = processAttackQueue(attackQueue)
 			#remove selected chips from hand
 			newHand = []
 			for i in range(len(self.hand)):
@@ -585,8 +630,6 @@ class Custom():
 			
 	def deselect(self):
 		"""deselects the last chip selected"""
-		if self.moveCooldown>0:
-			return
 		if len(self.selectedChips) > 0:
 			self.selected[self.selectedChips.pop()] = False #pop and deselect chip
 			#search selected chips to update selectedCode and selectedID
@@ -603,7 +646,6 @@ class Custom():
 					#tempCode = hand[chipLocation][1]
 					#break
 			#selectedCode = tempCode
-			self.moveCooldown = 4
 		
 	def selectCode(self, chipID, chipCode):
 		if self.selectedID==None:
@@ -684,32 +726,20 @@ class Custom():
 		else:
 			self.cursorRect.left = self.cursor.pos%5*17+10
 			self.cursorRect.top = self.cursor.pos//5*28+107
-		screen.blit(self.cursorSprites[custom.counter//5], self.cursorRect)
+		screen.blit(self.cursorSprites[custom.counter//8], self.cursorRect)
 		
 	def tick(self):
 		self.cursor.tick()
-		#if buttonInput[K_UP]:
-		#	self.moveCursor("up")
-		#if buttonInput[K_DOWN]:
-		#	self.moveCursor("down")
-		#if buttonInput[K_LEFT]:
-		#	self.moveCursor("left")
-		#if buttonInput[K_RIGHT]:
-		#	self.moveCursor("right")
-		#if buttonDown[K_RETURN]:
-		#	self.cursor = -1
-		#elif buttonInput[K_ESCAPE]:
-		#	gameTickAlias = TitleScreen
+		if buttonDown[K_RETURN]:
+			self.cursor.pos = -1
 		if buttonInput[K_SPACE]:
 			return self.select()
-		if buttonInput[K_BACKSPACE]:
+		if buttonDown[K_BACKSPACE]:
 			self.deselect()
 		
 		self.counter+=1
-		if self.counter >= 10:
+		if self.counter >= 16:
 			self.counter = 0
-		if self.moveCooldown>0:
-			self.moveCooldown -= 1
 		
 		
 class Editor():
@@ -839,7 +869,31 @@ class Editor():
 			y = 16*(self.selectedIndex-self.offset[self.selectedSide])
 			#print(x,y)
 			screen.blit(monospaceFont.render(cursor,False,(0,0,0)),(x,y))
-				
+	
+	def tick(self):
+		#scroll with buttons
+		if buttonInput[K_UP]:
+			editor.scroll("up")
+		elif buttonInput[K_DOWN]:
+			editor.scroll("down")
+		elif buttonInput[K_LEFT]:
+			editor.scroll("left")
+		elif buttonInput[K_RIGHT]:
+			editor.scroll("right")
+		#elif buttonInput[K_PAGEUP]:
+		#	editor.scroll("bigUp")
+		#elif buttonInput[K_PAGEDOWN]:
+		#	editor.scroll("bigDown")
+		elif buttonInput[K_SPACE]:
+			editor.select()
+		#elif buttonInput[K_ESCAPE]:
+			#save changes
+		#	editor.save()
+		#	folder = editor.folder
+		#	custom = Custom(folder, 5, [])
+		#	gameTickAlias = TitleScreen
+		return
+
 
 class ChipAttack():
 	"""A chip to be held in the attack queue, to track damage and bonuses. will be converted into an AttackEntity on use"""
@@ -851,12 +905,12 @@ class ChipAttack():
 		self.plusBonus = 0
 		self.multiplier = 1
 		
-	def use(self):
+	def use(self, user):
 		"""converts self into attackEntity and returns it"""
 		#create AttackEntity corresponding to chip
 		if self.Id < len(attackData):
 			attackAlias, subId = attackData[self.Id]
-			return attackAlias(player, self, subId)
+			return attackAlias(user, self, subId)
 		
 	def mergeBonuses(self, chipAttack):
 		self.plusBonus += chipAttack.plusBonus
@@ -894,8 +948,8 @@ class AttackEntity():
 		#move animation data into animation object
 		#self.animation = Animation(user.pos[:], spriteFile, spriteCoords, animationDelay, endFrame)
 		#board.animations.append(self.animation)
-		
-		
+		return
+			
 	def tick(self):
 		"""called each frame to update animation"""
 		self.attackTimer += 1
@@ -932,7 +986,6 @@ class AttackEntity():
 				board.tileTypes[x][y] = 4
 		return success
 				
-
 	def shootRow(self, pos):
 		"""	shoots down row at pos
 			shoots right if red team or left if blue team"""
@@ -958,9 +1011,9 @@ class AttackEntity():
 	def nearestEnemy(self, pos, maxRange):
 		"""returns nearest enemy by column"""
 		target = None
-		if self.team==1:
+		if self.user.team==1:
 			bestCol = 7
-		elif self.team==2:
+		elif self.user.team==2:
 			bestCol = -1
 		for entity in board.pokemonEntities:
 			if entity.team==self.team or abs(self.pos[0]-entity.pos[0]>maxRange):
@@ -1003,7 +1056,11 @@ class SwordAttack(AttackEntity):
 		self.shootFrame, self.status, self.endFrame = swordSubData[subId]
 		AttackEntity.__init__(self, user, chipAttack, self.endFrame)
 		user.moveLock = True
-		board.animations.append(Animation([user.pos[0]+1,user.pos[1]+1], user.team, "wideSword.png", [0,0,80,240], 0, 10))
+		if self.user.team == 1:
+			x = user.pos[0]+1
+		else:
+			x = user.pos[0]-1
+		board.animations.append(Animation([x,user.pos[1]+1.5], user.team, "wideSword.png", [0,0,80,240], 0, 10))
 		
 	def tick(self):
 		#player should be immobile upon activating
@@ -1036,6 +1093,8 @@ class PhysicalAttack(AttackEntity):
 		self.status = 1
 		AttackEntity.__init__(self, user, chipAttack, self.endFrame)
 		
+		if self.user.team == 2:
+			self.distance *= -1
 		self.speed = self.distance/self.endFrame
 		self.user.moveLock = True
 		self.pos[0] += self.distance
@@ -1052,7 +1111,7 @@ class PhysicalAttack(AttackEntity):
 		#move back
 		if self.attackTimer > self.endFrame/2:
 			#add to user's position
-			self.user.visualOffset[0]-=self.speed
+			self.user.visualOffset[0] -= self.speed
 		if self.attackTimer == self.endFrame:
 			self.user.moveLock = False
 		
@@ -1099,6 +1158,7 @@ class MovingTileAttack(AttackEntity):
 	"""attack moves along tiles"""
 	def __init__(self, user, chipAttack, subId):
 		movingSubData = [[30, 4]]
+		self.status = 1
 		endFrame, self.moveDelay = movingSubData[subId]
 		AttackEntity.__init__(self, user, chipAttack, endFrame)
 		
@@ -1207,8 +1267,6 @@ def TitleScreen():
 	global editor
 	global folder
 	global gameTickAlias
-	cursor.tick()
-	print(cursor.pos)
 	textsurface = monospaceFont.render("Press Enter to Start\nPress F to edit folder", False, (255,255,255))
 	title = pygame.image.load("title.png")
 	title2 = pygame.image.load("title2.png")
@@ -1219,9 +1277,9 @@ def TitleScreen():
 	screen.blit(textsurface,(200,188))
 	pygame.display.flip()
 	if buttonInput[K_RETURN]:
-			startBattle("normal")
-			gameTickAlias = CustomTick
-	#elif buttonInput[K_f]:
+		startBattle("normal")
+		gameTickAlias = CustomTick
+	#elif True:#buttonInput[K_f]:
 	#	try:
 	#		folder, customDraw, extraMode = load()
 	#	except:
@@ -1231,6 +1289,7 @@ def TitleScreen():
 	#elif buttonInput[K_s]:
 	#	startBattle("sandbag")
 	#	gameTickAlias = CustomTick
+	return
 
 def FolderTick():
 	global gameTickAlias
@@ -1239,28 +1298,8 @@ def FolderTick():
 	"""a menu to allow editing folder and other data related to the player"""
 	#display folder and chips
 	editor.draw()
-	#scroll with buttons
-	for event in pygame.event.get():
-		if event.type == pygame.KEYDOWN and event.key == K_UP:
-			editor.scroll("up")
-		if event.type == pygame.KEYDOWN and event.key == K_DOWN:
-			editor.scroll("down")
-		if event.type == pygame.KEYDOWN and event.key == K_LEFT:
-			editor.scroll("left")
-		if event.type == pygame.KEYDOWN and event.key == K_RIGHT:
-			editor.scroll("right")
-		if event.type == pygame.KEYDOWN and event.key == K_PAGEUP:
-			editor.scroll("bigUp")
-		if event.type == pygame.KEYDOWN and event.key == K_PAGEDOWN:
-			editor.scroll("bigDown")
-		if event.type == pygame.KEYDOWN and event.key == K_SPACE:
-			editor.select()
-		if event.type == pygame.KEYDOWN and event.key == K_ESCAPE:
-			#save changes
-			editor.save()
-			folder = editor.folder
-			custom = Custom(folder, 5, [])
-			gameTickAlias = TitleScreen
+	editor.tick()
+	
 					
 def BattleTick():
 	global gameTickAlias
@@ -1269,58 +1308,27 @@ def BattleTick():
 			#print("enter custom")
 			gameTickAlias = CustomTick
 			board.frameCount = 0
-			
+	board.tick()
 	
-					
-	for enemy in board.enemies:
-		if isinstance(enemy,Navi) and randint(0,20)==0:
-			moves = ["left","right","up","down"]
-			enemy.moveDirection(moves[randint(0,3)])
-		#elif randint(0,40)==0:
-		#	shootRow(enemy.pos,10,0,2,True)
-			
-	for entity in board.pokemonEntities:
-		if isinstance(entity, Navi) and entity.pokemon.totalStats[0]<= 0:
-			board.pokemonEntities.remove(entity)
-			board.enemies.remove(entity)
-		elif isinstance(entity, TileClaim) and entity.timer>entity.delay:
-			board.pokemonEntities.remove(entity)
-			
-	if not board.enemies:
-		newBadGuy = Navi([5,1],2,randint(0,9))
-		board.pokemonEntities.append(newBadGuy)
-		board.enemies.append(newBadGuy)
-		
-	for attackEntity in board.attackEntities:
-		attackEntity.tick()
-		if attackEntity.attackTimer > attackEntity.endFrame:
-			board.attackEntities.remove(attackEntity)		
-			
-	for animation in board.animations:
-		if animation.animationTimer >= animation.endFrame:
-			board.animations.remove(animation)
-		animation.tick()
-		
-	for entity in board.pokemonEntities:
-		entity.tick()
-		
-	board.draw()
-	
-	if board.frameCount >= board.turnFrames:
-		board.frameCount = board.turnFrames
-	else:
-		board.frameCount += 1
 		
 def CustomTick():
 	global gameTickAlias
 	"""open custom menu, handle cursor and chip selection, draw chips"""
 	#drawCustom
-	board.draw
+	board.draw()
 	custom.draw()
 	selectedAttacks = custom.tick()			
 	if selectedAttacks!=None:	#OK is pressed
 		if selectedAttacks:	#don't overwrite if no attacks selected
 			player.attackQueue = selectedAttacks
+		for enemy in board.pokemonEntities:
+			if isinstance(enemy, Enemy):
+				chipCount = randint(0,5)
+				if chipCount > 0:
+					enemy.attackQueue = []
+					for i in range(chipCount):
+						enemy.attackQueue.append(ChipAttack([randint(0,16),"*"]))
+					enemy.attackQueue = processAttackQueue(enemy.attackQueue)
 		gameTickAlias = BattleTick
 		
 def load():
@@ -1333,7 +1341,12 @@ def save(folder, customDraw, extraMode):
 	json.dump([folder,customDraw,extraMode], saveFile)
 	
 def startBattle(mode):
+	"""load folder and start a battle in the given mode"""
 	global custom
+	global board
+	global player
+	
+	player = Player([1,1],randint(0,9))
 	try:
 		folder, customDraw, extraMode, = load()
 	except:
@@ -1342,16 +1355,32 @@ def startBattle(mode):
 		extraMode = []
 	if mode == "sandbag":
 		custom = Custom(folder, 10, extraMode)
-		custom.refresh()
-		board.enemies = [SandBag([4,1],0)]
-		board.pokemonEntities = [player]+board.enemies
+		custom.refresh() 
+		board = Board([player,SandBag([4,1],0)])
 	else:
 		custom = Custom(folder, customDraw, extraMode)
 		shuffle(custom.folder)
 		custom.refresh()
-		board.enemies = [Navi([4,1],2,randint(0,9)),Navi([5,0],2,randint(0,9)),Navi([5,2],2,randint(0,9))]
-		board.pokemonEntities = [player]+board.enemies
-		
+		board = Board([player, Enemy([4,1],randint(0,9)),Enemy([5,0],randint(0,9)),Enemy([5,2],randint(0,9))])
+
+def endBattle():
+	global gameTickAlias
+	gameTickAlias = TitleScreen
+
+def processAttackQueue(attackQueue):
+	newAttackQueue = []
+	for attack in attackQueue:
+		if attack.Id == 9 and newAttackQueue: #if attack+10
+			#print("found attack+")
+			newAttackQueue[0].plusBonus += 10
+		elif attack.Id>= 10 and attack.Id<14 and newAttackQueue: #+status
+			newAttackQueue[0].status = attack.Id-8
+		elif attack.Id in range(14,18) and newAttackQueue:
+			effectNames = ["SetRed","SetBlue","SetYellow","SetGreen"]
+			newAttackQueue[0].effects.append(effectNames[attack.Id-14])
+		else:
+			newAttackQueue.insert(0,attack)
+	return newAttackQueue
 	
 		
 		
@@ -1372,8 +1401,8 @@ except FileNotFoundError:
 	
 
 
-player = Player([1,1],1,randint(0,9))
-board = Board()
+player = None
+board = None
 
 
 #battle
@@ -1388,7 +1417,8 @@ buttonHeld = {K_LEFT:False, K_RIGHT:False, K_UP:False, K_DOWN:False, K_SPACE:Fal
 buttonDown = dict(buttonHeld)
 buttonInput = dict(buttonHeld)
 
-cursor = Cursor(10,K_UP,True)
+
+#tickList = [board]
 
 while True:
 	start = datetime.now()
@@ -1406,10 +1436,10 @@ while True:
 			
 	
 	
-	
-	
-	
+	#for thing in tickList:
+	#	thing.tick()
 	gameTickAlias()
+	
 	for i in buttonDown:
 		buttonDown[i] = False
 	end = datetime.now()
