@@ -190,7 +190,7 @@ class PokemonEntity(Entity):
 			Y = (self.pos[1]+self.visualOffset[1])*tileHeight+tileWidth+moveOffset
 			self.rect.center = X,Y
 			
-			if not(self.status==1 and self.statusTimer%4>1): #don't draw every other frame if flinched
+			if not(self.status==1 and self.statusTimer%4>1): #don't draw every 2 frames if flinched
 				screen.blit(self.image, self.rect)
 				
 			if self.status>1 and self.statusTimer>0:
@@ -273,6 +273,11 @@ class Player(Navi):
 			player.moveDirection("right")
 		if buttonDown[a]:
 			self.useChip()
+		if buttonInput[r] or buttonInput[l]:
+			if board.frameCount >= board.turnFrames:
+				#print("enter custom")
+				game.state = "Custom"
+				board.frameCount = 0
 			
 	def draw(self):
 		Navi.draw(self)
@@ -311,6 +316,58 @@ class SandBag(PokemonEntity):
 		Y = self.pos[1]*tileHeight+tileWidth+25
 		screen.blit(damageText,(X,Y))
 
+class Game():
+	"""controls the game state and which objects to tick"""
+	def __init__(self):
+		self.state = "TitleScreen"
+		self.titleScreen = TitleScreen()
+	
+	def startBattle(self, mode):
+		"""load folder and start a battle in the given mode"""
+		global custom
+		global board
+		global player
+		
+		self.state = "Custom"
+		player = Player([1,1],randint(0,9))
+		try:
+			folder, customDraw, extraMode, = load()
+		except:
+			folder = defaultFolder
+			customDraw = 5
+			extraMode = []
+		if mode == "sandbag":
+			custom = Custom(folder, 10, extraMode)
+			custom.refresh() 
+			board = Board([player,SandBag([4,1],0)])
+		else:
+			custom = Custom(folder, customDraw, extraMode)
+			shuffle(custom.folder)
+			custom.refresh()
+			board = Board([player, Enemy([4,1],randint(0,9)),Enemy([5,0],randint(0,9)),Enemy([5,2],randint(0,9))])
+		
+	
+	def endBattle(self):
+		self.state = "TitleScreen"
+		
+	def tick(self):
+		if self.state == "Battle":
+			board.draw()
+			board.tick()
+		elif self.state == "Custom":
+			board.draw()
+			custom.draw()
+			custom.tick()
+		elif self.state == "TitleScreen":
+			self.titleScreen.draw()
+			self.titleScreen.tick()
+		elif self.state == "Folder":
+			editor.draw()
+			editor.tick()
+			
+		
+
+
 class Cursor():
 	"""class to navigate a menu using cursor"""
 	def __init__(self, size, vertical, wrap):
@@ -320,6 +377,7 @@ class Cursor():
 		self.wrap = wrap #true if cursor is allowed to wrap
 		self.state = 0
 		self.currentInput = None
+		self.buttons = [up, down, left, right]
 	
 	def move(self, direction):
 		if self.vertical:
@@ -340,7 +398,7 @@ class Cursor():
 				self.pos = self.size-1
 		
 	def select(self):
-		NotImplemented
+		return self.pos
 		
 	def tick(self):
 		#get input
@@ -350,7 +408,7 @@ class Cursor():
 		#on states 2 and 23 move 1
 		#on state 27 go ot state 23
 		if self.currentInput == None:
-			for button in [up, down, left, right]:
+			for button in self.buttons:
 				if buttonHeld[button]:
 					self.currentInput = button
 					self.state = 1
@@ -412,6 +470,77 @@ class CustomCursor(Cursor):
 		#print("cursor at",self.pos)
 		
 		self.moveCooldown = 4
+
+class ScreenScrollCursor(Cursor):
+	"""a cursor that can only display a number of items at a time"""
+	def __init__(self, size, screenSize):
+		Cursor.__init__(self, size, True, False)
+		self.screenSize = screenSize
+		self.offset = 0 #position to draw top of menu
+		self.buttons = [up, down, left, right, l, r]
+	
+	def move(self, direction):
+		if direction == up:
+			if self.pos > 0:
+				self.pos -= 1
+				if self.offset > self.pos:
+					self.offset -= 1
+		elif direction == down:
+			if self.pos < self.size-1:
+				self.pos += 1
+				if self.pos >= self.offset+self.screenSize:
+					self.offset += 1
+		elif direction == l:
+			if self.offset >= self.screenSize:
+				self.pos -= self.screenSize
+				self.offset -= self.screenSize
+			else:
+				self.pos -= self.offset #maybe
+				self.offset = 0
+		elif direction == r:
+			if self.offset < self.size-2*self.screenSize:
+				self.pos += self.screenSize
+				self.offset += self.screenSize
+			else:
+				self.pos += self.size-self.screenSize-self.offset
+				self.offset = self.size-self.screenSize
+
+
+class TitleScreen():
+	"""the title screen allows selecting a mode to play"""
+	def __init__(self):
+		self.cursor = Cursor(3, True, True)
+		self.title = pygame.image.load("title.png")
+		self.title2 = pygame.image.load("title2.png")
+		
+	def draw(self):
+		#draw title
+		screen.blit(self.title,(0,0))
+		screen.blit(self.title2,(240 ,0))
+		#draw options
+		options = ["Random Battle","Sandbag Practice","Folder Edit"]
+		for i in range(3):
+			screen.blit(monospaceFont.render(options[i], False, (255,255,255)), (width/2, height*.6+10*i))
+		#draw cursor
+			screen.blit(monospaceFont.render(">", False, (255,255,255)), (width/2-16, height*.6+10*self.cursor.pos))
+				
+	def tick(self):
+		self.cursor.tick()
+		if buttonDown[a]:
+			choice = self.cursor.select()
+			if choice == 0:
+				game.startBattle("normal")
+			elif choice == 1:
+				game.startBattle("sandbag")
+			elif choice == 2:
+				global editor
+				try:
+					folder, customDraw, extraMode = load()
+				except:
+					folder = defaultFolder
+				editor = Editor(folder)
+				game.state = "Folder"
+		
 		
 
 class Board():
@@ -485,7 +614,6 @@ class Board():
 			screen.blit(timerText,(0,0))
 			
 	def tick(self):
-		self.draw()
 		if not self.timeFreeze:
 			for entity in self.pokemonEntities:
 				if isinstance(entity, Navi) and entity.pokemon.totalStats[0]<= 0:
@@ -511,8 +639,10 @@ class Board():
 					hasEnemies = True
 				elif isinstance(entity, Player):
 					hasPlayer = True
+				elif isinstance(entity, SandBag):
+					hasEnemies = True
 			if not hasPlayer or not hasEnemies:
-				endBattle()
+				game.endBattle()
 				
 			for hitbox in self.hitBoxes:
 				hitbox.tick()
@@ -536,9 +666,7 @@ class Board():
 				self.activeTimeFreezeAttack.draw()
 				self.activeTimeFreezeAttack.tick()
 		
-
-			
-			
+		
 class Custom():
 	""""handles the data for the custom window"""
 	def __init__(self, folder, customDraw, extraMode):
@@ -559,6 +687,8 @@ class Custom():
 		self.cursorSprites = spritesheet("custom cursor.png").load_strip(self.cursorRect,2,colorkey=-1)
 		self.customWindow = pygame.image.load("custom frame.png")
 		self.customWindowRect = self.customWindow.get_rect()
+		self.chipImageStrip = spritesheet("chip images.png").load_strip([0,0,56,48],10)
+		self.elementStrip = spritesheet("elements.png").load_strip([0,0,14,14],9,colorkey=-1)
 		
 		extraButtonStrip = spritesheet("extra buttons.png").load_strip((0,0,24,16),10)
 		if self.extraMode:
@@ -735,23 +865,22 @@ class Custom():
 				screen.blit(code,(self.handRects[i].left+4,self.handRects[i].top+15))
 				
 			#draw details of current chip
-			chipImageStrip = spritesheet("chip images.png").load_strip([0,0,56,48],10)
-			elementStrip = spritesheet("elements.png").load_strip([0,0,14,14],9,colorkey=-1)
 			
 			if self.cursor.pos<0:
-				chipID = len(chipImageStrip)-1
+				chipID = len(self.chipImageStrip)-1
 			else:
 				currentChip = chipID,chipCode= self.hand[self.cursor.pos]
-				chipName = chipData[chipID][0]
+				chipName, chipDamage, chipElement, codes = chipData[chipID]
 				chipNameText = monospaceFont.render(chipName,False,(255,255,255))
 				chipCodeText = monospaceFont.render(chipCode,False,(255,255,0))
-				chipDamageText = monospaceFont.render("10",False,(255,255,255))
+				chipDamageText = monospaceFont.render(str(chipDamage),False,(255,255,255))
 				screen.blit(chipNameText,(15,17))
 				screen.blit(chipCodeText,(15,89))
-				screen.blit(elementStrip[0],(25,89))#need to assign elements to chipIDs and damage
-				screen.blit(chipDamageText,(69,89))
-			if(chipID<len(chipImageStrip)):
-				screen.blit(chipImageStrip[chipID],(15,29))
+				screen.blit(self.elementStrip[chipElement],(25,89))
+				if chipDamage > 0:
+					screen.blit(chipDamageText,(69,89))
+			if(chipID<len(self.chipImageStrip)):
+				screen.blit(self.chipImageStrip[chipID],(15,29))
 			
 			#draw selectedChips chips
 			pos = 0
@@ -777,8 +906,22 @@ class Custom():
 		self.cursor.tick()
 		if buttonDown[start]:
 			self.cursor.pos = -1
-		if buttonInput[a]:
-			return self.select()
+		if buttonDown[a]:
+			selectedAttacks = self.select()			
+			if selectedAttacks!=None:	#OK is pressed
+				if selectedAttacks:	#don't overwrite if no attacks selected
+					player.attackQueue = selectedAttacks
+				for enemy in board.pokemonEntities:
+					if isinstance(enemy, Enemy):
+						chipCount = randint(0,5)
+						if chipCount > 0:
+							enemy.attackQueue = []
+							for i in range(chipCount):
+								enemy.attackQueue.append(ChipAttack([randint(0,16),"*"]))
+							enemy.attackQueue = processAttackQueue(enemy.attackQueue)
+				game.state = "Battle"
+			
+			
 		if buttonDown[b]:
 			self.deselect()
 		
@@ -790,45 +933,42 @@ class Custom():
 class Editor():
 	"""stores data for folder editing menu"""
 	def __init__(self, folder):
-		self.cursor = [0,0] #row of cursor
-		self.offset = [0,0] #position to draw top of menu
-		self.cursorSide = 0	#folder/pack 
-		self.rows = 8
+		#folder
 		self.folder = folder[:]
-		if len(self.folder)<30:
-			newFolder = [None for i in range(30)]
-			for i in range(len(self.folder)):
-				newFolder[i] = self.folder[i]
-			self.folder = newFolder
+		while len(self.folder)<30:
+			self.folder.append(None)
 		
-		self.selectedSide = None
-		self.selectedIndex = None
-		#create folder containing all chips
+		#pack
+		#fill pack with all chips
 		self.allChips = []
 		for i in range(len(chipData)):
 			for code in chipData[i][3]:
 				self.allChips.append([i,code])
-		#print(self.allChips)
-		#print("folder length",len(self.folder),"all length",len(self.allChips))
+		
+		self.rows = 7
+		self.cursors = [ScreenScrollCursor(30,self.rows),ScreenScrollCursor(len(self.allChips),self.rows)]
+		self.cursorSide = 0	#folder/pack 
+		self.selectedSide = None
+		self.selectedIndex = None
 		
 	def select(self):
+		currentIndex = self.cursors[self.cursorSide].pos
+		#print("current Index",currentIndex)
 		if self.selectedIndex == None:
 			self.selectedSide = self.cursorSide
-			self.selectedIndex = self.offset[self.cursorSide]+self.cursor[self.cursorSide]
+			self.selectedIndex = currentIndex
 		else:
-			currentIndex = self.offset[self.cursorSide]+self.cursor[self.cursorSide]
-			#print("current Index",currentIndex)
 			#double tap
 			if self.cursorSide == self.selectedSide and self.selectedIndex == currentIndex:
 				if self.cursorSide == 0:
 					#remove chip from folder
 					self.folder[self.selectedIndex] = None
 				else:
-					#add chip to folder
+					#replace first empty chip in folder
 					try:
 						self.folder[self.folder.index(None)] = self.allChips[self.selectedIndex]
 					except:
-						False
+						NotImplemented
 			#left(selected) to right (remove)
 			elif self.selectedSide == 0 and self.cursorSide == 1:
 				self.folder[self.selectedIndex] = self.allChips[currentIndex]
@@ -843,99 +983,70 @@ class Editor():
 				self.folder[currentIndex] = b
 				self.folder[self.selectedIndex] = a
 			
-			self.selectedSide = None
-			self.selectedIndex = None
-		
+			self.deselect()
+	
+	def deselect(self):
+		self.selectedSide = None
+		self.selectedIndex = None
 						
-		#print("selected",self.selectedSide,self.selectedIndex)
-		
 	def scroll(self, direction):
-		if self.cursorSide == 0:
-			length = len(self.folder)
-		else:
-			length = len(self.allChips)
-		if direction == "up":
-			if self.cursor[self.cursorSide] > 0:
-				self.cursor[self.cursorSide] -= 1
-			elif self.offset[self.cursorSide] > 0:
-				self.offset[self.cursorSide] -= 1
-		elif direction == "down":
-			if self.cursor[self.cursorSide] < self.rows-1:
-				self.cursor[self.cursorSide] += 1
-			elif self.offset[self.cursorSide] < length-self.rows:
-				self.offset[self.cursorSide] += 1
-		elif direction == "left":
+		if direction == "left":
 			self.cursorSide = 0
 		elif direction == "right":
 			self.cursorSide = 1
-		elif direction == "bigUp":
-			if self.offset[self.cursorSide] >= self.rows:
-				self.offset[self.cursorSide] -= self.rows
-			else:
-				self.offset[self.cursorSide] = 0
-		elif direction == "bigDown":
-			if self.offset[self.cursorSide] < length-2*self.rows:
-				self.offset[self.cursorSide] += self.rows
-			else:
-				self.offset[self.cursorSide] = length-self.rows
-		#print("cursor",self.cursor,"offset",self.offset)
 		
 	def save(self):
 		if None not in self.folder:
-			save(self.folder, 10, [])
+			save(self.folder, 7, ["discard","restock","recycle"])
 	
 	def draw(self):
 		screen.blit(background,backgroundRect)
 		
-		#draw folder
+		#draw folder and pack
 		j = 0
-		for currentFolder in [self.folder,self.allChips]:
-			for i in range(self.offset[j],self.offset[j]+self.rows):
+		for currentFolder in [self.folder, self.allChips]:
+			for i in range(self.cursors[j].offset, self.cursors[j].offset+self.rows):
 				if i < len(currentFolder) and currentFolder[i] != None:
 					chipId, chipCode = currentFolder[i]
 					chipText = chipData[chipId][0]+chipCode
-					displayText = monospaceFont.render(chipText,False,(0,0,0))
-					screen.blit(displayText,(100*j,16*(i-self.offset[j])))
+					displayText = monospaceFont.render(chipText, False, (0,0,0))
+					screen.blit(displayText, (100*j, 16*(i-self.cursors[j].offset)))
 			j += 1
-		#draw all chips
+		
 		#draw cursor
 		if self.cursorSide == 0:
 			cursor = "<"
 		else:
 			cursor = ">"
-		screen.blit(monospaceFont.render(cursor,False,(0,0,0)),(80,16*self.cursor[self.cursorSide]))
+		screen.blit(monospaceFont.render(cursor, False, (0,0,0)), (80, 16*(self.cursors[self.cursorSide].pos-self.cursors[self.cursorSide].offset)))
+		
 		#draw selected cursor
-		if self.selectedIndex is not None and self.selectedIndex >= self.offset[self.selectedSide] and self.selectedIndex < self.offset[self.selectedSide]+self.rows:
+		if self.selectedIndex is not None and self.selectedIndex >= self.cursors[self.selectedSide].offset and self.selectedIndex < self.cursors[self.selectedSide].offset+self.rows:
 			if self.selectedSide == 0:
 				cursor = "<"
 			else:
 				cursor = ">"
 			x = 70+20*self.selectedSide
-			y = 16*(self.selectedIndex-self.offset[self.selectedSide])
+			y = 16*(self.selectedIndex-self.cursors[self.selectedSide].offset)
 			#print(x,y)
 			screen.blit(monospaceFont.render(cursor,False,(0,0,0)),(x,y))
 	
 	def tick(self):
 		#scroll with buttons
-		if buttonInput[up]:
-			editor.scroll("up")
-		elif buttonInput[down]:
-			editor.scroll("down")
-		elif buttonInput[left]:
-			editor.scroll("left")
-		elif buttonInput[right]:
-			editor.scroll("right")
-		#elif buttonInput[l]:
-		#	editor.scroll("bigUp")
-		#elif buttonInput[r]:
-		#	editor.scroll("bigDown")
-		elif buttonInput[a]:
-			editor.select()
-		#	editor.save()
-		#	folder = editor.folder
-		#	custom = Custom(folder, 5, [])
-		#	gameTickAlias = TitleScreen
-		return
+		self.cursors[self.cursorSide].tick()
+		
+		if buttonDown[left]:
+			self.scroll("left")
+		elif buttonDown[right]:
+			self.scroll("right")
+		elif buttonDown[a]:
+			self.select()
+		elif buttonDown[b]:
+			if self.selectedIndex == None:
+				self.save()
+				game.state = "TitleScreen"
+			else:
+				self.deselect()
 
 
 class ChipAttack():
@@ -1296,19 +1407,20 @@ class HitBox():
 		
 	def hit(self):
 		x,y = self.pos
-		for effect in self.attack.chipAttack.effects:
-			if effect == "SetRed":
-				board.tileTypes[x][y] = 1
-			elif effect == "SetBlue":
-				board.tileTypes[x][y] = 2
-			elif effect == "SetYellow":
-				board.tileTypes[x][y] = 3
-			elif effect == "SetGreen":
-				board.tileTypes[x][y] = 4
-		for entity in board.pokemonEntities:
-			if entity.pos == self.pos and entity not in self.victims and entity.team!=self.team:
-				entity.hit(self.attack.damage, self.attack.element, self.attack.status)
-				self.victims.append(entity)
+		if x in range(6) and y in range(3):
+			for effect in self.attack.chipAttack.effects:
+				if effect == "SetRed":
+					board.tileTypes[x][y] = 1
+				elif effect == "SetBlue":
+					board.tileTypes[x][y] = 2
+				elif effect == "SetYellow":
+					board.tileTypes[x][y] = 3
+				elif effect == "SetGreen":
+					board.tileTypes[x][y] = 4
+			for entity in board.pokemonEntities:
+				if entity.pos == self.pos and entity not in self.victims and entity.team!=self.team:
+					entity.hit(self.attack.damage, self.attack.element, self.attack.status)
+					self.victims.append(entity)
 				
 	def draw(self):
 		#draw flashing yellow box if in warning frames and solid yellow if in active frames
@@ -1368,74 +1480,12 @@ def typeEffectiveness(attackElement, defendElement):
 	return 1
 	
 
-def TitleScreen():
-	global custom
-	global editor
-	global folder
-	global gameTickAlias
-	textsurface = monospaceFont.render("Press Enter to Start\nPress F to edit folder", False, (255,255,255))
-	title = pygame.image.load("title.png")
-	title2 = pygame.image.load("title2.png")
-	
-	screen.blit(title,(0,0))
-	screen.blit(title2,(240 ,0))
-	
-	screen.blit(textsurface,(200,188))
-	pygame.display.flip()
-	if buttonHeld[start]:
-		startBattle("normal")
-		gameTickAlias = CustomTick
-	#elif True:#buttonInput[K_f]:
-	#	try:
-	#		folder, customDraw, extraMode = load()
-	#	except:
-	#		folder = defaultFolder
-	#	editor = Editor(folder)
-	#	gameTickAlias = FolderTick
-	#elif buttonInput[K_s]:
-	#	startBattle("sandbag")
-	#	gameTickAlias = CustomTick
-	return
 
-def FolderTick():
-	global gameTickAlias
-	global custom
-	global folder
-	"""a menu to allow editing folder and other data related to the player"""
-	#display folder and chips
-	editor.draw()
-	editor.tick()
 	
 					
-def BattleTick():
-	global gameTickAlias
-	if buttonInput[r]:
-		if board.frameCount >= board.turnFrames:
-			#print("enter custom")
-			gameTickAlias = CustomTick
-			board.frameCount = 0
-	board.tick()
 	
-		
-def CustomTick():
-	global gameTickAlias
-	"""open custom menu, handle cursor and chip selection, draw chips"""
-	#drawCustom
-	board.draw()
-	custom.draw()
-	selectedAttacks = custom.tick()			
-	if selectedAttacks!=None:	#OK is pressed
-		if selectedAttacks:	#don't overwrite if no attacks selected
-			player.attackQueue = selectedAttacks
-		for enemy in board.pokemonEntities:
-			if isinstance(enemy, Enemy):
-				chipCount = randint(0,5)
-				if chipCount > 0:
-					enemy.attackQueue = []
-					for i in range(chipCount):
-						enemy.attackQueue.append(ChipAttack([randint(0,16),"*"]))
-					enemy.attackQueue = processAttackQueue(enemy.attackQueue)
-		gameTickAlias = BattleTick
+
+	
 		
 def load():
 	saveFile = open("save.txt", "r")
@@ -1446,44 +1496,23 @@ def save(folder, customDraw, extraMode):
 	saveFile = open("save.txt", "w")
 	json.dump([folder,customDraw,extraMode], saveFile)
 	
-def startBattle(mode):
-	"""load folder and start a battle in the given mode"""
-	global custom
-	global board
-	global player
-	
-	player = Player([1,1],randint(0,9))
-	try:
-		folder, customDraw, extraMode, = load()
-	except:
-		folder = defaultFolder
-		customDraw = 5
-		extraMode = []
-	if mode == "sandbag":
-		custom = Custom(folder, 10, extraMode)
-		custom.refresh() 
-		board = Board([player,SandBag([4,1],0)])
-	else:
-		custom = Custom(folder, customDraw, extraMode)
-		shuffle(custom.folder)
-		custom.refresh()
-		board = Board([player, Enemy([4,1],randint(0,9)),Enemy([5,0],randint(0,9)),Enemy([5,2],randint(0,9))])
 
-def endBattle():
-	global gameTickAlias
-	gameTickAlias = TitleScreen
 
 def processAttackQueue(attackQueue):
 	newAttackQueue = []
 	for attack in attackQueue:
-		if attack.Id == 9 and newAttackQueue: #if attack+10
-			#print("found attack+")
-			newAttackQueue[0].plusBonus += 10
-		elif attack.Id>= 10 and attack.Id<14 and newAttackQueue: #+status
-			newAttackQueue[0].status = attack.Id-8
-		elif attack.Id in range(14,18) and newAttackQueue:
-			effectNames = ["SetRed","SetBlue","SetYellow","SetGreen"]
-			newAttackQueue[0].effects.append(effectNames[attack.Id-14])
+		if newAttackQueue:
+			bottomChip = newAttackQueue[0]
+			if attack.Id == 9 and newAttackQueue and bottomChip.damage>0: #add atk+10 to chips that can deal damage
+				#print("found attack+")
+				bottomChip.plusBonus += 10
+			elif attack.Id>= 10 and attack.Id<14 and newAttackQueue and bottomChip.damage>0 and (bottomChip.element==0 or bottomChip.element==attack.Id-9): #+status to damaging null or same element chip
+				bottomChip.status = attack.Id-8
+			elif attack.Id in range(14,18) and newAttackQueue and bottomChip.damage>0 and (bottomChip.element==0 or bottomChip.element==attack.Id-13): #attach setColor to damaging null or same element chip
+				effectNames = ["SetRed","SetBlue","SetYellow","SetGreen"]
+				bottomChip.effects.append(effectNames[attack.Id-14])
+			else:
+				newAttackQueue.insert(0,attack)
 		else:
 			newAttackQueue.insert(0,attack)
 	return newAttackQueue
@@ -1491,14 +1520,12 @@ def processAttackQueue(attackQueue):
 		
 		
 		
-	
-	
+		
 
 #game
 defaultFolder = [[5,"A"],[5,"A"],[6,"B"],[6,"B"],[7,"A"],[7,"A"],[8,"B"],[8,"B"],[0,"*"],[0,"*"],[2,"B"],[2,"B"],[3,"A"],[3,"A"],[1,"B"],[1,"B"],[10,"*"],[10,"*"],[11,"*"],[11,"*"],[12,"*"],[12,"*"],[13,"*"],[13,"*"],[14,"*"],[15,"*"],[16,"*"],[17,"*"],[9,"*"],[9,"*"]]
 attackData = [[ShootAttack, 0], [SwordAttack, 0], [PhysicalAttack, 0], [TargetAttack, 0], [MovingTileAttack, 0], [SwordAttack, 1], [SwordAttack, 2], [SwordAttack, 3],[SwordAttack, 4],[AttackEntity, 0],[AttackEntity, 0],[AttackEntity, 0],[AttackEntity, 0],[AttackEntity, 0],[StageChange, 1],[StageChange, 2],[StageChange, 3],[StageChange, 4]]		
 
-gameTickAlias = TitleScreen
 try:
 	folder = load()
 except FileNotFoundError:
@@ -1507,8 +1534,7 @@ except FileNotFoundError:
 	
 
 
-player = None
-board = None
+game = Game()
 
 
 #battle
@@ -1516,18 +1542,22 @@ statusStrips = [spritesheet(statusFile).load_strip([0,0,80,80],statusImageCount,
 
 
 #custom
+player = None
+board = None
 custom = None
 editor = None
 
-buttonHeld = {left:False, right:False, up:False, down:False, a:False, start:False, r:False, b:False}
+buttonHeld = {up:False, down:False, left:False, right:False, a:False, b:False, r:False, l:False, start:False, select:False}
 buttonDown = dict(buttonHeld)
 buttonInput = dict(buttonHeld)
 
 
 #tickList = [board]
 
+
 while True:
 	frameStartTime = datetime.now()
+	
 	for event in pygame.event.get():
 		if event.type == pygame.QUIT: 
 			sys.exit()
@@ -1540,11 +1570,7 @@ while True:
 	for i in buttonHeld:
 		buttonInput[i] = buttonHeld[i] or buttonDown[i]
 			
-	
-	
-	#for thing in tickList:
-	#	thing.tick()
-	gameTickAlias()
+	game.tick()
 	
 	for i in buttonDown:
 		buttonDown[i] = False
