@@ -22,8 +22,8 @@ realScreen = pygame.display.set_mode(displaySize)
 boardOffset = 80
 
 elements = ["null","fire","aqua","elec","wood","break","cursor","wind","sword"]
-			#[name, damage, element, status, codes]
-chipData = [["Air Shot", 10, 7, 0, ["*"]],["WideSwrd",10,8, 1, ["B"]],["Tackle",10,5, 1, ["B"]],["Target Shot",10,6, 1, ["A"]],["Shockwave",10,0, 1, ["A","B"]],["FireSword",10,1,1,["A"]],["AquaSword",10,2,1,["B"]],["ElecSword",10,3,1,["A"]],["BambSword",10,4,1,["B"]],["atk+10",0,0,0,["*"]],["+burn",0,0,2,["*"]],["+freeze",0,0,3,["*"]],["+paralyze",0,0,4,["*"]],["+ensare",0,0,5,["*"]],["SetRed",0,0,0,["*"]],["SetBlue",0,0,0,["*"]],["SetYellow",0,0,0,["*"]],["SetGreen",0,0,0,["*"]]]
+			#[name, damage, element, status, codes, description]
+chipData = [["AirShot", 10, 7, 0, ["*"]],["WideSwrd",10,8, 1, ["B"]],["Tackle",10,5, 1, ["B"]],["TrgtShot",10,6, 1, ["A"]],["Shockwav",10,0, 1, ["A","B"]],["FireSwrd",10,1,1,["A"]],["AquaSwrd",10,2,1,["B"]],["ElecSwrd",10,3,1,["A"]],["BambSwrd",10,4,1,["B"]],["atk+10",0,0,0,["*"]],["+burn",0,0,2,["*"]],["+freeze",0,0,3,["*"]],["+paralyz",0,0,4,["*"]],["+ensare",0,0,5,["*"]],["SetRed",0,0,0,["*"]],["SetBlue",0,0,0,["*"]],["SetYello",0,0,0,["*"]],["SetGreen",0,0,0,["*"]]]
 	
 chipSpriteSheet = spritesheet("MMBN Assets/chip icons.png")
 background = pygame.image.load("MMBN Assets/background.png")
@@ -75,7 +75,6 @@ class DrawableEntity(Entity):
 		self.offset[0]*=facing
 		self.facing = facing
 		
-	
 	def getPixelCoords(self):
 		#translates pos into center x and y for screen
 		x = (self.pos[0]+.5)*tileWidth + self.offset[0]	
@@ -384,12 +383,8 @@ class Game():
 		
 		self.state = "Custom"
 		player = Player([1,1],randint(0,9))
-		try:
-			folder, customDraw, extraMode, = load()
-		except:
-			folder = defaultFolder
-			customDraw = 5
-			extraMode = []
+		folder, customDraw, extraMode, = load()
+		
 		if mode == "sandbag":
 			custom = Custom(folder, 10, extraMode)
 			custom.refresh() 
@@ -584,10 +579,7 @@ class TitleScreen():
 				game.startBattle("sandbag")
 			elif choice == 2:
 				global editor
-				try:
-					folder, customDraw, extraMode = load()
-				except:
-					folder = defaultFolder
+				folder, customDraw, extraMode = load()
 				editor = Editor(folder)
 				game.state = "Folder"
 		
@@ -934,10 +926,11 @@ class Custom():
 				screen.blit(code,(self.handRects[i].left+4,self.handRects[i].top+15))
 				
 			#draw details of current chip
-			currentChip = self.hand[self.cursor.pos]
-			screen.blit(currentChip.chipWindow,(10,22))
-			chipNameText = monospaceFont.render(currentChip.name,False,(255,255,255))
-			screen.blit(chipNameText,(15,12))
+			if self.cursor.pos >= 0:
+				currentChip = self.hand[self.cursor.pos]
+				screen.blit(currentChip.chipWindow,(10,22))
+				chipNameText = monospaceFont.render(currentChip.name,False,(255,255,255))
+				screen.blit(chipNameText,(15,12))
 			
 			#draw selectedChips chips
 			pos = 0
@@ -1144,16 +1137,14 @@ class ChipAttack():
 	def mergeBonuses(self, chipAttack):
 		self.plusBonus += chipAttack.plusBonus
 		self.multiplier *= chipAttack.multiplier
-		self.effects += chipAttack.effects
-		if chipAttack.addedStatus:
-			self.addedStatus = chipAttack.addedStatus
-			
+		self.effects += chipAttack.effects			
 				
 	def getChipWindow(self):
 		#return a surface with the image and data for a chip
-		chipImageStrip = spritesheet("MMBN Assets/chip images.png").load_strip([0,0,56,48],10)
+		chipImageStrip = spritesheet("MMBN Assets/chip images.png").loadWholeStrip([0,0,56,48])
 		elementStrip = spritesheet("MMBN Assets/elements.png").load_strip([0,0,14,14],9,colorkey=-1)
 		chipWindow = Surface((66,66))
+		chipWindow.set_colorkey((0,0,0))
 		if self.Id < len(chipData):
 			chipCodeText = monospaceFont.render(self.code,False,(255,255,0))
 			self.damageText = monospaceFont.render(str(self.damage),False,(255,255,255))
@@ -1167,6 +1158,7 @@ class ChipAttack():
 
 	def getChipSurface(self):
 		battleChipSurface = Surface((80,134))
+		battleChipSurface.set_colorkey((0,0,0))
 		battleChipImage = pygame.image.load("MMBN Assets/Menus/battlechip.png")
 		battleChipSurface.blit(battleChipImage,(0,0))
 		battleChipSurface.blit(self.getChipWindow(),(7,2))
@@ -1746,17 +1738,20 @@ def typeEffectiveness(attackElement, defendElement):
 	
 def load():
 	try:
-		saveFile = open("save.txt", "r")
+		saveFile = open("Data/save.txt", "r")
 		return json.load(saveFile)
 	except:
-		return defaultFolder, 7, ["discard","restock","recycle"]
+		try:
+			return json.load(open("Data/DefaultSave.txt","r"))
+		except:
+			return [[0,"*"] for i in range(30)], 7, ["discard","restock","recycle"]
 		
 def save(folder, customDraw, extraMode):
 	#save folder, custom draw amount, extra button,
 	idFolder = []
 	for chip in folder:
 		idFolder.append([chip.Id,chip.code])
-	saveFile = open("save.txt", "w")
+	saveFile = open("Data/save.txt", "w")
 	json.dump([idFolder,customDraw,extraMode], saveFile)
 
 	
@@ -1785,7 +1780,6 @@ def processAttackQueue(attackQueue):
 		
 
 #game
-defaultFolder = [[5,"A"],[5,"A"],[6,"B"],[6,"B"],[7,"A"],[7,"A"],[8,"B"],[8,"B"],[0,"*"],[0,"*"],[2,"B"],[2,"B"],[3,"A"],[3,"A"],[1,"B"],[1,"B"],[10,"*"],[10,"*"],[11,"*"],[11,"*"],[12,"*"],[12,"*"],[13,"*"],[13,"*"],[14,"*"],[15,"*"],[16,"*"],[17,"*"],[9,"*"],[9,"*"]]
 attackData = [[ShootAttack, 0], [SwordAttack, 0], [PhysicalAttack, 0], [TargetAttack, 0], [MovingTileAttack, 0], [SwordAttack, 1], [SwordAttack, 2], [SwordAttack, 3],[SwordAttack, 4],[AttackEntity, 0],[AttackEntity, 0],[AttackEntity, 0],[PursuitAttack, 0],[AttackEntity, 0],[StageChange, 1],[StageChange, 2],[StageChange, 3],[StageChange, 4]]
 
 folder = load()
@@ -1806,7 +1800,6 @@ buttonDown = dict(buttonHeld)
 buttonInput = dict(buttonHeld)
 
 
-#tickList = [board]
 globalTimer = 0
 
 
