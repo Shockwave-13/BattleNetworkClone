@@ -41,3 +41,23 @@ class spritesheet(object):
 		spriteX = spriteCol*sizeX
 		spriteY = spriteRow*sizeY
 		return self.image_at((spriteX,spriteY,sizeX,sizeY), colorkey=colorkey)
+		
+	def loadWholeStrip(self, rect, colorkey=None):
+		#load a horizontal strip without giving the length
+		size = self.sheet.get_size()
+		#find image_count by dividing by size
+		image_count = size[0]//rect[2]
+		return self.load_strip(rect, image_count, colorkey=colorkey)
+		
+	def loadStripGroup(self, rect, image_count=-1, colorkey=None):
+		#return a list of strips for each row of rects in an image
+		size = self.sheet.get_size()
+		rowCount = size[1]//rect[3]
+		stripGroup = []
+		for i in range(rowCount):
+			if image_count>0:
+				stripGroup.append(self.load_strip(rect, image_count, colorkey=colorkey))
+			else:
+				stripGroup.append(self.loadWholeStrip(rect, colorkey=colorkey))
+			rect[1]+=rect[3]
+		return stripGroup
