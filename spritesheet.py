@@ -42,12 +42,16 @@ class spritesheet(object):
 		spriteY = spriteRow*sizeY
 		return self.image_at((spriteX,spriteY,sizeX,sizeY), colorkey=colorkey)
 		
-	def loadWholeStrip(self, rect, colorkey=None):
+	def loadWholeStrip(self, rect=None, imageCount=None, colorkey=None):
 		#load a horizontal strip without giving the length
 		size = self.sheet.get_size()
-		#find image_count by dividing by size
-		image_count = size[0]//rect[2]
-		return self.load_strip(rect, image_count, colorkey=colorkey)
+		if rect:
+			#find image_count by dividing by size
+			imageCount = size[0]//rect[2]
+		elif imageCount>0:
+			rect = [0,0,size[0]//imageCount,size[1]]
+		return self.load_strip(rect, imageCount, colorkey=colorkey)
+			
 		
 	def loadStripGroup(self, rect, image_count=-1, colorkey=None):
 		#return a list of strips for each row of rects in an image
@@ -58,6 +62,6 @@ class spritesheet(object):
 			if image_count>0:
 				stripGroup.append(self.load_strip(rect, image_count, colorkey=colorkey))
 			else:
-				stripGroup.append(self.loadWholeStrip(rect, colorkey=colorkey))
+				stripGroup.append(self.loadWholeStrip(rect=rect, colorkey=colorkey))
 			rect[1]+=rect[3]
 		return stripGroup
